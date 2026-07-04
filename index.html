@@ -131,19 +131,28 @@
     overflow:auto; max-height:420px; white-space:pre}
   footer{max-width:1400px; margin:0 auto; padding:0 20px 36px; color:var(--sub); font-size:12px}
 
-  /* 오류 검사 */
-  #lintInput{
-    width:100%; border:none; border-bottom:1px solid var(--line); resize:vertical;
-    background:var(--code-bg); color:var(--code-ink); padding:12px 16px;
+  /* 오류 검사 — 텍스트 입력 위에 색칠 레이어를 겹치는 구조 */
+  .lintwrap{position:relative; background:var(--code-bg)}
+  #lintBack,#lintInput{
     font-family:Consolas,"Nanum Gothic Coding",monospace; font-size:12.5px; line-height:1.6;
+    padding:12px 16px; white-space:pre; tab-size:4; margin:0; border:none;
   }
+  #lintBack{
+    position:absolute; inset:0; overflow:hidden; pointer-events:none;
+    color:var(--code-ink);
+  }
+  #lintBack .l-err{display:inline-block; min-width:100%; color:#ff6f64; background:rgba(214,69,58,.16); border-radius:3px}
+  #lintBack .l-warn{display:inline-block; min-width:100%; color:#e2b44e; background:rgba(224,179,77,.10); border-radius:3px}
+  #lintInput{
+    position:relative; display:block; width:100%; min-height:200px; resize:vertical;
+    background:transparent; color:transparent; caret-color:var(--code-ink);
+    overflow:auto; z-index:2;
+  }
+  #lintInput::selection{background:rgba(120,140,220,.35)}
   #lintInput:focus{outline:none}
-  #lintOut{padding:10px 16px; display:flex; flex-direction:column; gap:4px; max-height:280px; overflow:auto}
-  .lint-item{display:flex; gap:10px; font-size:13px; align-items:baseline}
-  .lint-item .ln{flex:0 0 58px; font-family:Consolas,monospace; color:var(--sub); font-variant-numeric:tabular-nums}
-  .lint-item.err .tag{color:var(--accent); font-weight:800}
-  .lint-item.warn .tag{color:#b8860b; font-weight:800}
-  .lint-ok{color:var(--ok); font-weight:700; font-size:13px}
+  #lintInput::placeholder{color:#8d8983}
+  #lintMsg{font-size:12px; letter-spacing:0; font-weight:600; color:var(--accent); max-width:520px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -181,13 +190,17 @@
   </div>
 
   <div class="pane">
-    <div class="bar">스크립트 오류 검사 — 내 .nani 코드를 붙여넣고 검사 (Naninovel 1.18.1 기준)
+    <div class="bar">스크립트 오류 검사 — 붙여넣으면 문제 줄이 <b style="color:var(--accent)">빨간색</b>으로 표시됩니다 (Naninovel 1.18.1 기준)
       <span class="grow"></span>
-      <button class="small" id="lintRun">검사하기</button>
+      <span id="lintMsg"></span>
+      <span class="warn" id="lintCount"></span>
+      <button class="small" id="lintRun">다시 검사</button>
     </div>
-    <textarea id="lintInput" rows="8" spellcheck="false" placeholder="여기에 검사할 나니노벨 스크립트를 붙여넣으세요.
-검사 항목: 없는 명령어(@shake 등) · @if↔@endif 짝 · @choice 뒤 @stop 누락 · goto 라벨 존재 여부 · if: 식의 공백/등호 실수 · 따옴표 짝 · 라벨 중복"></textarea>
-    <div id="lintOut"></div>
+    <div class="lintwrap">
+      <div id="lintBack" aria-hidden="true"></div>
+      <textarea id="lintInput" rows="10" wrap="off" spellcheck="false" placeholder="여기에 검사할 나니노벨 스크립트를 붙여넣으세요. 빨간 줄 = 오류, 노란 줄 = 주의.
+빨간 줄에 커서를 올려두면 위쪽 바에 이유가 표시됩니다."></textarea>
+    </div>
   </div>
 
 </main>
@@ -695,16 +708,41 @@ function lintNani(src){
   if(ifDepth>0)push(ifOpenLines[0]||lines.length,"err",`@if(${ifOpenLines.join(", ")}행)가 @endif로 닫히지 않음`);
   return issues.sort((a,b)=>a.line-b.line);
 }
-$("lintRun").onclick=()=>{
-  const src=$("lintInput").value;
-  const out=$("lintOut");
-  if(!src.trim()){out.innerHTML='<div class="lint-item warn"><span class="tag">⚠</span>검사할 스크립트를 붙여넣어 주세요.</div>';return;}
-  const issues=lintNani(src);
-  if(!issues.length){out.innerHTML='<div class="lint-ok">✓ 문제를 찾지 못했습니다. (리소스 이름 오타는 유니티에서만 확인 가능)</div>';return;}
-  out.innerHTML=issues.map(i=>
-    `<div class="lint-item ${i.level}"><span class="ln">${i.line}행</span><span class="tag">${i.level==="err"?"오류":"주의"}</span><span>${esc(i.msg)}</span></div>`
-  ).join("");
-};
+const lintTa=$("lintInput"), lintBack=$("lintBack");
+let lintIssues=[];
+function runLint(){
+  const src=lintTa.value;
+  lintIssues=src.trim()?lintNani(src):[];
+  // 줄별로 가장 심한 문제 하나만 색칠
+  const map=new Map();
+  lintIssues.forEach(i=>{
+    const p=map.get(i.line);
+    if(!p||(p.level==="warn"&&i.level==="err"))map.set(i.line,i);
+  });
+  lintBack.innerHTML=src.split(/\r?\n/).map((ln,idx)=>{
+    const i=map.get(idx+1), body=esc(ln)+" ";
+    return i?`<span class="l-${i.level}">${body}</span>`:body;
+  }).join("\n");
+  syncLintScroll();
+  const errs=lintIssues.filter(i=>i.level==="err").length;
+  $("lintCount").textContent=!src.trim()?"":(lintIssues.length?`오류 ${errs} · 주의 ${lintIssues.length-errs}`:"✓ 통과");
+  $("lintCount").style.color=lintIssues.length?"":"var(--ok)";
+  updateLintMsg();
+}
+function syncLintScroll(){
+  lintBack.scrollTop=lintTa.scrollTop; lintBack.scrollLeft=lintTa.scrollLeft;
+}
+function updateLintMsg(){
+  const line=lintTa.value.slice(0,lintTa.selectionStart).split("\n").length;
+  const hit=lintIssues.find(x=>x.line===line);
+  $("lintMsg").textContent=hit?`${hit.line}행: ${hit.msg}`:"";
+  $("lintMsg").style.color=hit&&hit.level==="warn"?"#b8860b":"var(--accent)";
+}
+let lintTimer=null;
+lintTa.addEventListener("input",()=>{clearTimeout(lintTimer);lintTimer=setTimeout(runLint,250);});
+lintTa.addEventListener("scroll",syncLintScroll);
+["click","keyup"].forEach(ev=>lintTa.addEventListener(ev,updateLintMsg));
+$("lintRun").onclick=runLint;
 
 /* ───────── 시작 ───────── */
 (function init(){
