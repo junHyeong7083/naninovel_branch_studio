@@ -576,6 +576,7 @@ function genCode(){
       L.push("@else");
       L.push(`@goto .${s.elseTarget||"???"}`);
       L.push("@endif");
+      L.push("@stop");
     }else{
       if(s.memo)L.push(`; ▶ ${s.memo}`);
       L.push("; ▼ 여기에 이 장면의 내용 채우기");
@@ -587,12 +588,10 @@ function genCode(){
           cmd+=` goto:.${c.target||"???"}`;
           L.push(cmd);
         });
-        L.push("@stop");
       }else if(s.next){
         L.push(`@goto .${s.next}`);
-      }else{
-        L.push("@stop");
       }
+      L.push("@stop"); // 모든 블록은 예외 없이 @stop으로 끝난다
     }
     L.push("");
   });
