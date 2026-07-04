@@ -130,6 +130,20 @@
     font-family:Consolas,"Nanum Gothic Coding",monospace; font-size:12.5px; line-height:1.6;
     overflow:auto; max-height:420px; white-space:pre}
   footer{max-width:1400px; margin:0 auto; padding:0 20px 36px; color:var(--sub); font-size:12px}
+
+  /* 오류 검사 */
+  #lintInput{
+    width:100%; border:none; border-bottom:1px solid var(--line); resize:vertical;
+    background:var(--code-bg); color:var(--code-ink); padding:12px 16px;
+    font-family:Consolas,"Nanum Gothic Coding",monospace; font-size:12.5px; line-height:1.6;
+  }
+  #lintInput:focus{outline:none}
+  #lintOut{padding:10px 16px; display:flex; flex-direction:column; gap:4px; max-height:280px; overflow:auto}
+  .lint-item{display:flex; gap:10px; font-size:13px; align-items:baseline}
+  .lint-item .ln{flex:0 0 58px; font-family:Consolas,monospace; color:var(--sub); font-variant-numeric:tabular-nums}
+  .lint-item.err .tag{color:var(--accent); font-weight:800}
+  .lint-item.warn .tag{color:#b8860b; font-weight:800}
+  .lint-ok{color:var(--ok); font-weight:700; font-size:13px}
 </style>
 </head>
 <body>
@@ -164,6 +178,16 @@
       <button class="small" id="dlCode">.nani 다운로드</button>
     </div>
     <pre id="codeBox"></pre>
+  </div>
+
+  <div class="pane">
+    <div class="bar">스크립트 오류 검사 — 내 .nani 코드를 붙여넣고 검사 (Naninovel 1.18.1 기준)
+      <span class="grow"></span>
+      <button class="small" id="lintRun">검사하기</button>
+    </div>
+    <textarea id="lintInput" rows="8" spellcheck="false" placeholder="여기에 검사할 나니노벨 스크립트를 붙여넣으세요.
+검사 항목: 없는 명령어(@shake 등) · @if↔@endif 짝 · @choice 뒤 @stop 누락 · goto 라벨 존재 여부 · if: 식의 공백/등호 실수 · 따옴표 짝 · 라벨 중복"></textarea>
+    <div id="lintOut"></div>
   </div>
 
 </main>
@@ -560,6 +584,126 @@ $("dlCode").onclick=()=>{
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);a.download="MyStory.nani";a.click();
   URL.revokeObjectURL(a.href);
+};
+
+/* ───────── 스크립트 오류 검사 (Naninovel 1.18.1 린터) ───────── */
+// 설치된 에셋 소스(Assets/Naninovel/Runtime/Command)에서 추출한 실존 명령어 전체
+const KNOWN=new Set([
+ "save","look","animate","title","arrange","finishtrans","bgm","hide","sfx","choice",
+ "sfxfast","hideall","clearchoice","voice","input","hidechars","back","char","camera",
+ "show","slide","movie","br","append","printer","toast","set","print","if","starttrans",
+ "despawnall","despawn","style","i",
+ "stopbgm","stopsfx","stopvoice","goto","gosub","return","stop","wait","skip",
+ "else","elseif","endif","hideprinter","showprinter","resettext","skipinput","spawn",
+ "showui","hideui","clearbacklog","lipsync","loadscene","unloadscene","lock","unlock",
+ "openurl","processinput","purgerollback","resetstate"
+]);
+function editDist(a,b){
+  const m=a.length,n=b.length,d=Array.from({length:m+1},(_,i)=>[i,...Array(n).fill(0)]);
+  for(let j=1;j<=n;j++)d[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
+    d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return d[m][n];
+}
+function suggest(cmd){
+  let best=null,bd=3;
+  KNOWN.forEach(k=>{const e=editDist(cmd,k);if(e<bd){bd=e;best=k;}});
+  return best;
+}
+function lintNani(src){
+  const issues=[];
+  const push=(line,level,msg)=>issues.push({line,level,msg});
+  const lines=src.split(/\r?\n/);
+  // 1패스: 라벨 수집 + 중복 검사
+  const labels=new Set();
+  lines.forEach((raw,idx)=>{
+    const t=raw.trim();
+    if(t.startsWith("#")){
+      const name=t.slice(1).trim();
+      if(!name)push(idx+1,"err","라벨 이름이 비어 있음");
+      else if(labels.has(name))push(idx+1,"err",`라벨 '# ${name}' 이 중복됨`);
+      labels.add(name);
+    }
+  });
+  // 2패스: 줄 단위 검사
+  let ifDepth=0; const ifOpenLines=[];
+  let pendingChoice=0; // @choice 본 뒤 @stop/@goto를 아직 못 봄 (라인 기록)
+  lines.forEach((raw,idx)=>{
+    const n=idx+1, t=raw.trim();
+    if(!t||t.startsWith(";"))return;
+    if(t.startsWith("#")){
+      if(pendingChoice)push(n,"err",`@choice(${pendingChoice}행) 뒤에 @stop 없이 라벨이 나옴 — 선택지가 떠 있어도 아래 내용이 줄줄이 실행됩니다`);
+      pendingChoice=0; return;
+    }
+    if(t.startsWith("@")){
+      const m=t.match(/^@\s*([A-Za-z]\w*)/);
+      const cmd=m?m[1]:"", lc=cmd.toLowerCase();
+      if(!m){push(n,"err","@ 뒤에 명령어 이름이 없음");return;}
+      // 명령어 뒤에 콜론을 붙인 실수 (@if:조건 등)
+      if(new RegExp(`^@\\s*${cmd}:`).test(t)&&KNOWN.has(lc))
+        push(n,"err",`@${cmd}: — 명령어와 값 사이는 콜론이 아니라 공백 (예: @${cmd} 값). 콜론은 time: pos: 같은 파라미터에만 씁니다`);
+      // 실존 명령어 검사
+      if(!KNOWN.has(lc)){
+        let msg=`@${cmd} — v1.18.1에 없는 명령어`;
+        if(lc==="shake")msg+=". 흔들기는 @spawn ShakeCamera 또는 @spawn ShakeCharacter params:캐릭터ID";
+        else{
+          // 띄어쓰기 누락 감지: 알려진 명령어로 시작하면 분리 제안
+          let split=null;
+          KNOWN.forEach(k=>{if(lc.startsWith(k)&&lc.length>k.length&&(!split||k.length>split.length))split=k;});
+          if(split)msg+=`. 혹시 @${split} ${t.replace(new RegExp("^@\\s*.{"+split.length+"}"),"").trim()} (띄어쓰기 누락)?`;
+          else{const s=suggest(lc);if(s)msg+=`. 혹시 @${s}?`;}
+        }
+        push(n,"err",msg);
+      }
+      // 따옴표 짝
+      if(((t.match(/"/g)||[]).length)%2)push(n,"err",'따옴표(")의 짝이 안 맞음');
+      // @if 블록 짝 검사
+      if(lc==="if"){ifDepth++;ifOpenLines.push(n);}
+      else if(lc==="endif"){ if(ifDepth===0)push(n,"err","@endif가 열린 @if 없이 나옴"); else{ifDepth--;ifOpenLines.pop();} }
+      else if(lc==="else"||lc==="elseif"){ if(ifDepth===0)push(n,"err",`@${cmd}가 @if 블록 밖에 있음`); }
+      // @if/@elseif 식: 따옴표 없는 공백
+      if((lc==="if"||lc==="elseif")&&/^@\w+\s+[^"\s]+\s+\S/.test(t))
+        push(n,"warn",`@${cmd} 식 중간에 공백이 있음 — 붙여 쓰거나 전체를 따옴표로 감싸기 (예: @if score>=3)`);
+      // if: 파라미터 식 검사
+      const ifp=t.match(/\bif:(?!")(\S+)/);
+      if(ifp&&/\s[<>=!&|]/.test(t.slice(t.indexOf("if:"))))
+        push(n,"warn",'if: 식 중간에 공백이 있으면 잘려요 — if:"score >= 3" 처럼 따옴표로 감싸기');
+      // 등호 하나 실수 (비교 자리에서 = 하나)
+      const exprSrc=(lc==="if"||lc==="elseif")?t.replace(/^@\w+/,""):(t.match(/\bif:("[^"]*"|\S+)/)?.[1]||"");
+      if(exprSrc&&/[^=!<>+\-*/]=(?!=)/.test(exprSrc))
+        push(n,"warn","비교에 = 하나만 쓴 것 같음 — 같다 비교는 == (@set의 대입과 다름)");
+      // goto/gosub 라벨 존재 검사 (같은 파일 .라벨 만)
+      [...t.matchAll(/(?:goto|gosub):\.([\w가-힣]+)/g)].forEach(g=>{
+        if(!labels.has(g[1]))push(n,"err",`goto:.${g[1]} — '# ${g[1]}' 라벨이 이 스크립트에 없음`);
+      });
+      const gd=t.match(/^@(?:goto|gosub)\s+\.([\w가-힣]+)/);
+      if(gd&&!labels.has(gd[1]))push(n,"err",`.${gd[1]} — '# ${gd[1]}' 라벨이 이 스크립트에 없음`);
+      // @set 검사
+      if(lc==="set"&&!/=|\+\+|--/.test(t))push(n,"err","@set에 = 가 없음 (예: @set score=0)");
+      // choice 흐름
+      if(lc==="choice")pendingChoice=pendingChoice||n;
+      else if(lc==="stop"||lc==="goto")pendingChoice=0;
+    }else{
+      // 대사 줄 — 인라인 명령어 검사
+      [...t.matchAll(/\[\s*([A-Za-z]\w*)[^\]]*\]/g)].forEach(mm=>{
+        const c=mm[1].toLowerCase();
+        if(!KNOWN.has(c))push(n,"warn",`인라인 [${mm[1]}] — v1.18.1에 없는 명령어`);
+      });
+    }
+  });
+  if(pendingChoice)push(lines.length,"err",`@choice(${pendingChoice}행) 뒤에 @stop이 없음 — 스크립트 끝까지 흘러갑니다`);
+  if(ifDepth>0)push(ifOpenLines[0]||lines.length,"err",`@if(${ifOpenLines.join(", ")}행)가 @endif로 닫히지 않음`);
+  return issues.sort((a,b)=>a.line-b.line);
+}
+$("lintRun").onclick=()=>{
+  const src=$("lintInput").value;
+  const out=$("lintOut");
+  if(!src.trim()){out.innerHTML='<div class="lint-item warn"><span class="tag">⚠</span>검사할 스크립트를 붙여넣어 주세요.</div>';return;}
+  const issues=lintNani(src);
+  if(!issues.length){out.innerHTML='<div class="lint-ok">✓ 문제를 찾지 못했습니다. (리소스 이름 오타는 유니티에서만 확인 가능)</div>';return;}
+  out.innerHTML=issues.map(i=>
+    `<div class="lint-item ${i.level}"><span class="ln">${i.line}행</span><span class="tag">${i.level==="err"?"오류":"주의"}</span><span>${esc(i.msg)}</span></div>`
+  ).join("");
 };
 
 /* ───────── 시작 ───────── */
