@@ -348,15 +348,23 @@ function bindNode(d,s,i,isCond){
     e.preventDefault();
     if(!selection.has(s.id)){selection.clear();selection.add(s.id);applySelection();}
     const sx=e.clientX,sy=e.clientY;
-    const moving=story.scenes.filter(o=>selection.has(o.id)).map(o=>({o,ox:o.x||60,oy:o.y||60}));
+    const moving=story.scenes.filter(o=>selection.has(o.id)).map(o=>({
+      o,ox:o.x||60,oy:o.y||60,
+      el:canvas.querySelector(`.node[data-i="${story.scenes.indexOf(o)}"]`)
+    }));
+    let lx=sx,ly=sy,raf=0;
     const move=ev=>{
-      const dx=ev.clientX-sx, dy=ev.clientY-sy;
-      moving.forEach(m=>{
-        m.o.x=Math.max(0,m.ox+dx); m.o.y=Math.max(0,m.oy+dy);
-        const nd=canvas.querySelector(`.node[data-i="${story.scenes.indexOf(m.o)}"]`);
-        if(nd){nd.style.left=m.o.x+"px"; nd.style.top=m.o.y+"px";}
+      lx=ev.clientX; ly=ev.clientY;
+      if(raf)return;
+      raf=requestAnimationFrame(()=>{
+        raf=0;
+        const dx=lx-sx, dy=ly-sy;
+        moving.forEach(m=>{
+          m.o.x=Math.max(0,m.ox+dx); m.o.y=Math.max(0,m.oy+dy);
+          if(m.el){m.el.style.left=m.o.x+"px"; m.el.style.top=m.o.y+"px";}
+        });
+        updateWirePositions();
       });
-      renderWires();
     };
     const up=()=>{save();removeEventListener("pointermove",move);removeEventListener("pointerup",up);};
     addEventListener("pointermove",move); addEventListener("pointerup",up);
@@ -394,27 +402,40 @@ function wirePath(a,b){
   const dx=Math.max(40,Math.abs(b.x-a.x)/2);
   return `M ${a.x} ${a.y} C ${a.x+dx} ${a.y}, ${b.x-dx} ${b.y}, ${b.x} ${b.y}`;
 }
-function renderWires(tempFrom,tempTo){
-  let svg="";
-  const nodeById=id=>canvas.querySelector(`.node[data-i="${story.scenes.findIndex(s=>s.id===id)}"]`);
+/* 성능: 구조가 바뀔 때만 path 요소를 만들고(renderWires),
+   드래그 중에는 좌표(d 속성)만 rAF로 갱신한다(scheduleWires) */
+const SVGNS="http://www.w3.org/2000/svg";
+let wireData=[], wireRAF=0;
+function renderWires(){
+  wires.innerHTML=""; wireData=[];
   outPorts().forEach(o=>{
     if(!o.target)return;
-    const tn=nodeById(o.target); if(!tn)return;
-    const a=portCenter(o.el), b=portCenter(tn.querySelector(".port.in"));
-    const d=wirePath(a,b);
-    svg+=`<path class="hit" d="${d}" stroke="transparent" stroke-width="14" fill="none"
-      data-i="${o.i}" data-kind="${o.kind}" data-ci="${o.ci??""}" data-bi="${o.bi??""}"><title>클릭하면 연결 해제</title></path>`;
-    svg+=`<path d="${d}" stroke="var(--wire)" stroke-width="2.2" fill="none"/>`;
+    const idx=story.scenes.findIndex(s=>s.id===o.target);
+    const tn=canvas.querySelector(`.node[data-i="${idx}"]`); if(!tn)return;
+    const dst=tn.querySelector(".port.in");
+    const hit=document.createElementNS(SVGNS,"path");
+    hit.setAttribute("class","hit"); hit.setAttribute("stroke","transparent");
+    hit.setAttribute("stroke-width","14"); hit.setAttribute("fill","none");
+    const tt=document.createElementNS(SVGNS,"title"); tt.textContent="클릭하면 연결 해제"; hit.appendChild(tt);
+    hit.addEventListener("click",()=>{setTarget(o,"");save();renderNodes();});
+    const vis=document.createElementNS(SVGNS,"path");
+    vis.setAttribute("stroke","var(--wire)"); vis.setAttribute("stroke-width","2.2"); vis.setAttribute("fill","none");
+    wires.append(hit,vis);
+    wireData.push({hit,vis,src:o.el,dst});
   });
-  if(tempFrom&&tempTo)
-    svg+=`<path d="${wirePath(tempFrom,tempTo)}" stroke="var(--accent)" stroke-width="2.2" stroke-dasharray="6 4" fill="none"/>`;
-  wires.innerHTML=svg;
-  wires.querySelectorAll("path.hit").forEach(p=>{
-    p.addEventListener("click",()=>{
-      setTarget({i:+p.dataset.i,kind:p.dataset.kind,ci:p.dataset.ci,bi:p.dataset.bi},"");
-      save();renderNodes();
-    });
+  updateWirePositions();
+}
+function updateWirePositions(){
+  const c=canvas.getBoundingClientRect();
+  const center=el=>{const r=el.getBoundingClientRect();return{x:r.left+r.width/2-c.left,y:r.top+r.height/2-c.top};};
+  wireData.forEach(w=>{
+    const d=wirePath(center(w.src),center(w.dst));
+    w.hit.setAttribute("d",d); w.vis.setAttribute("d",d);
   });
+}
+function scheduleWires(){
+  if(wireRAF)return;
+  wireRAF=requestAnimationFrame(()=>{wireRAF=0;updateWirePositions();});
 }
 /* Alt+클릭 = 연결 끊기 (포트: 그 연결만 · 노드: 그 노드에 붙은 연결 전부) */
 function clearLinksOf(id){
@@ -452,19 +473,23 @@ canvas.addEventListener("pointerdown",e=>{
   e.preventDefault();
   const cr=canvas.getBoundingClientRect();
   const sx=e.clientX-cr.left, sy=e.clientY-cr.top;
-  let moved=false;
+  let moved=false,mx=0,my=0,raf=0;
   const move=ev=>{
-    const cx=ev.clientX-cr.left, cy=ev.clientY-cr.top;
-    if(Math.abs(cx-sx)+Math.abs(cy-sy)>4)moved=true;
-    const x=Math.min(sx,cx), y=Math.min(sy,cy), w=Math.abs(cx-sx), h=Math.abs(cy-sy);
-    Object.assign(marquee.style,{display:"block",left:x+"px",top:y+"px",width:w+"px",height:h+"px"});
-    // 실시간 하이라이트
-    selection.clear();
-    canvas.querySelectorAll(".node").forEach(nd=>{
-      const nx=nd.offsetLeft, ny=nd.offsetTop, nw=nd.offsetWidth, nh=nd.offsetHeight;
-      if(nx<x+w&&nx+nw>x&&ny<y+h&&ny+nh>y)selection.add(story.scenes[+nd.dataset.i].id);
+    mx=ev.clientX; my=ev.clientY;
+    if(raf)return;
+    raf=requestAnimationFrame(()=>{
+      raf=0;
+      const cx=mx-cr.left, cy=my-cr.top;
+      if(Math.abs(cx-sx)+Math.abs(cy-sy)>4)moved=true;
+      const x=Math.min(sx,cx), y=Math.min(sy,cy), w=Math.abs(cx-sx), h=Math.abs(cy-sy);
+      Object.assign(marquee.style,{display:"block",left:x+"px",top:y+"px",width:w+"px",height:h+"px"});
+      selection.clear();
+      canvas.querySelectorAll(".node").forEach(nd=>{
+        const nx=nd.offsetLeft, ny=nd.offsetTop, nw=nd.offsetWidth, nh=nd.offsetHeight;
+        if(nx<x+w&&nx+nw>x&&ny<y+h&&ny+nh>y)selection.add(story.scenes[+nd.dataset.i].id);
+      });
+      applySelection();
     });
-    applySelection();
   };
   const up=()=>{
     marquee.style.display="none";
@@ -489,12 +514,23 @@ canvas.addEventListener("pointerdown",e=>{
   const nd=p.closest(".node");
   const o={i:+nd.dataset.i,kind:p.dataset.kind,ci:p.dataset.ci,bi:p.dataset.bi,el:p};
   const from=portCenter(p);
+  const temp=document.createElementNS(SVGNS,"path");
+  temp.setAttribute("stroke","var(--accent)"); temp.setAttribute("stroke-width","2.2");
+  temp.setAttribute("stroke-dasharray","6 4"); temp.setAttribute("fill","none");
+  wires.appendChild(temp);
+  let lx=0,ly=0,raf=0;
   const move=ev=>{
-    const c=canvas.getBoundingClientRect();
-    renderWires(from,{x:ev.clientX-c.left,y:ev.clientY-c.top});
+    lx=ev.clientX; ly=ev.clientY;
+    if(raf)return;
+    raf=requestAnimationFrame(()=>{
+      raf=0;
+      const c=canvas.getBoundingClientRect();
+      temp.setAttribute("d",wirePath(from,{x:lx-c.left,y:ly-c.top}));
+    });
   };
   const up=ev=>{
     removeEventListener("pointermove",move);removeEventListener("pointerup",up);
+    temp.remove();
     const under=document.elementFromPoint(ev.clientX,ev.clientY);
     const targetNode=under?.closest(".node");
     if(targetNode&&+targetNode.dataset.i!==o.i){
@@ -623,6 +659,50 @@ function suggest(cmd){
   KNOWN.forEach(k=>{const e=editDist(cmd,k);if(e<bd){bd=e;best=k;}});
   return best;
 }
+// 명령어별 사용 가능한 파라미터 (v1.18.1 소스 [ParameterAlias]에서 추출)
+const PARAMS={
+ char:["look","avatar","pos","id","appearance","pose","transition","params","dissolve","visible","position","rotation","scale","tint","easing","time"],
+ back:["pos","id","appearance","pose","transition","params","dissolve","visible","position","rotation","scale","tint","easing","time"],
+ bgm:["intro","volume","loop","fade","group","time"],
+ sfx:["volume","loop","fade","group","time"],
+ sfxfast:["volume","restart","additive","group"],
+ stopbgm:["fade"], stopsfx:["fade"],
+ voice:["volume","group","authorid"], stopvoice:[],
+ choice:["button","pos","handler","goto","gosub","set","do","play","show","time"],
+ clearchoice:["hide"],
+ goto:["reset"], gosub:["reset"], "return":["reset"], stop:[],
+ wait:["do"], i:[], skip:[],
+ "if":[], elseif:[], "else":[], endif:[], set:[],
+ input:["summary","value","play"],
+ spawn:["params","pos","position","rotation","scale"], despawn:["params"], despawnall:[],
+ camera:["offset","roll","rotation","zoom","ortho","toggle","set","easing","time"],
+ look:["zone","speed","gravity"],
+ animate:["loop","appearance","transition","visibility","posx","posy","posz","rotation","scale","tint","easing","time"],
+ arrange:["look","time"],
+ hide:["time","remove"], show:["time"], hideall:["time","remove"], hidechars:["time","remove"],
+ slide:["from","to","visible","easing","time"],
+ print:["printer","author","speed","reset","default","waitinput","br","fadetime","voiceid"],
+ printer:["default","hideother"], append:["printer","author"], br:["printer","author"], style:["printer"],
+ hideprinter:["time"], showprinter:["time"], resettext:[], skipinput:[],
+ title:[], save:[], movie:["time"], toast:["appearance","time"],
+ showui:["time"], hideui:["time","allowtoggle"], lipsync:[],
+ loadscene:["additive"], unloadscene:[], lock:[], unlock:[], openurl:[],
+ processinput:["set"], purgerollback:[], resetstate:["exclude","only"],
+ starttrans:[], finishtrans:["params","dissolve","easing","time"], clearbacklog:[]
+};
+// 따옴표/중괄호를 존중하며 공백으로 토큰 분리
+function tokenizeParams(s){
+  const out=[]; let cur="",q=false,br=0;
+  for(const ch of s){
+    if(ch==='"')q=!q;
+    else if(ch==='{')br++;
+    else if(ch==='}')br=Math.max(0,br-1);
+    if(ch===" "&&!q&&br===0){if(cur)out.push(cur);cur="";}
+    else cur+=ch;
+  }
+  if(cur)out.push(cur);
+  return out;
+}
 function lintNani(src){
   const issues=[];
   const push=(line,level,msg)=>issues.push({line,level,msg});
@@ -685,14 +765,56 @@ function lintNani(src){
       const exprSrc=(lc==="if"||lc==="elseif")?t.replace(/^@\w+/,""):(t.match(/\bif:("[^"]*"|\S+)/)?.[1]||"");
       if(exprSrc&&/[^=!<>+\-*/]=(?!=)/.test(exprSrc))
         push(n,"warn","비교에 = 하나만 쓴 것 같음 — 같다 비교는 == (@set의 대입과 다름)");
-      // goto/gosub 라벨 존재 검사 (같은 파일 .라벨 만)
-      [...t.matchAll(/(?:goto|gosub):\.([\w가-힣]+)/g)].forEach(g=>{
-        if(!labels.has(g[1]))push(n,"err",`goto:.${g[1]} — '# ${g[1]}' 라벨이 이 스크립트에 없음`);
+      // 파라미터 이름 오타 검사 (scal1e: 등)
+      if(KNOWN.has(lc)&&PARAMS[lc]){
+        const allowed=new Set([...PARAMS[lc],"wait","if"]);
+        tokenizeParams(t.replace(/^@\s*\w+/,"")).forEach(tok=>{
+          const pm=tok.match(/^([A-Za-z][A-Za-z0-9]*):(?!\/\/)/);
+          if(!pm)return;
+          const pl=pm[1].toLowerCase();
+          if(allowed.has(pl))return;
+          let best=null,bd=3;
+          allowed.forEach(k=>{const e2=editDist(pl,k);if(e2<bd){bd=e2;best=k;}});
+          push(n,"err",`@${cmd}에 없는 파라미터 '${pm[1]}:'`+(best?` — 혹시 ${best}: ?`:""));
+        });
+      }
+      // goto/gosub 값 검사: 미연결(???), 점(.) 누락, 라벨 존재
+      [...t.matchAll(/(goto|gosub):("?)([^\s"]+)/g)].forEach(g=>{
+        const kw=g[1], val=g[3];
+        if(val==="???"||val===".???"){push(n,"err",`${kw}:${val} — 연결되지 않은 선택지. 이동할 라벨을 정해 주세요`);return;}
+        if(val.startsWith(".")){
+          const lb=val.slice(1);
+          if(!labels.has(lb))push(n,"err",`${kw}:.${lb} — '# ${lb}' 라벨이 이 스크립트에 없음`);
+        }else if(!val.includes(".")){
+          if(labels.has(val))push(n,"err",`${kw}:${val} — 점(.) 누락! 같은 파일의 라벨은 ${kw}:.${val}`);
+          else push(n,"warn",`${kw}:${val} — '${val}' 스크립트 파일로 이동으로 해석됩니다. 이 파일의 라벨이라면 ${kw}:.${val} 처럼 점을 붙이세요`);
+        }
       });
-      const gd=t.match(/^@(?:goto|gosub)\s+\.([\w가-힣]+)/);
-      if(gd&&!labels.has(gd[1]))push(n,"err",`.${gd[1]} — '# ${gd[1]}' 라벨이 이 스크립트에 없음`);
+      const gd=t.match(/^@(goto|gosub)\s+("?)([^\s"]+)/);
+      if(gd){
+        const kw=gd[1], val=gd[3];
+        if(val==="???"||val===".???")push(n,"err",`@${kw} ${val} — 이동할 라벨이 정해지지 않음`);
+        else if(val.startsWith(".")){
+          const lb=val.slice(1);
+          if(!labels.has(lb))push(n,"err",`.${lb} — '# ${lb}' 라벨이 이 스크립트에 없음`);
+        }else if(!val.includes(".")){
+          if(labels.has(val))push(n,"err",`@${kw} ${val} — 점(.) 누락! 같은 파일의 라벨은 @${kw} .${val}`);
+          else push(n,"warn",`@${kw} ${val} — '${val}' 스크립트 파일로 이동으로 해석됩니다. 이 파일의 라벨이라면 @${kw} .${val}`);
+        }
+      }
+      // set: 식 검사 (choice의 set: 포함) — 대입 없는 happy+2 등
+      [...t.matchAll(/\bset:(?!")(\S+)/g)].forEach(sm=>{
+        sm[1].split(";").forEach(ex=>{
+          if(!ex||/=|\+\+|--/.test(ex))return;
+          const mm=ex.match(/^(\w+)([+\-*/])(.+)$/);
+          push(n,"err",`set:${ex} — 대입(=)이 없음`+(mm?` — 혹시 set:${mm[1]}${mm[2]}=${mm[3]} ?`:" (예: set:happy+=2)"));
+        });
+      });
       // @set 검사
-      if(lc==="set"&&!/=|\+\+|--/.test(t))push(n,"err","@set에 = 가 없음 (예: @set score=0)");
+      if(lc==="set"&&!/=|\+\+|--/.test(t)){
+        const mm=t.match(/^@set\s+(\w+)([+\-*/])(\S+)/);
+        push(n,"err","@set에 = 가 없음"+(mm?` — 혹시 @set ${mm[1]}${mm[2]}=${mm[3]} ?`:" (예: @set score=0)"));
+      }
       // choice 흐름
       if(lc==="choice")pendingChoice=pendingChoice||n;
       else if(lc==="stop"||lc==="goto")pendingChoice=0;
@@ -752,8 +874,7 @@ $("lintRun").onclick=runLint;
   }catch(_){story=JSON.parse(JSON.stringify(SAMPLE));}
   renderNodes();
 })();
-addEventListener("resize",()=>renderWires());
-canvasBox.addEventListener("scroll",()=>{}); // 포트 좌표는 canvas 기준이라 스크롤 무관
+addEventListener("resize",()=>updateWirePositions());
 </script>
 </body>
 </html>
