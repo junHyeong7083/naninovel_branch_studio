@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>나니 분기 스튜디오 — 분기 설계 → 나니노벨 코드</title>
+<style>
+  :root{
+    --bg:#f6f5f3; --panel:#ffffff; --ink:#1c1b1a; --sub:#6d6a66;
+    --line:#e3e0dc; --accent:#b3261e; --accent-soft:#fdf1f0;
+    --ok:#2e7d46; --code-bg:#211f1e; --code-ink:#e8e4de;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1b1a19; --panel:#242220; --ink:#eae6e1; --sub:#a09a93;
+      --line:#3a3733; --accent:#e05a50; --accent-soft:#3a2422;
+      --ok:#6fbf8a; --code-bg:#141312; --code-ink:#ddd8d1; }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Pretendard Variable",Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    font-size:14px; line-height:1.55;
+  }
+  header{
+    background:var(--panel); border-bottom:1px solid var(--line);
+    padding:14px 22px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  }
+  header h1{font-size:17px; margin:0; letter-spacing:-.01em}
+  header h1 .dot{color:var(--accent)}
+  header .hint{color:var(--sub); font-size:12.5px}
+  main{max-width:1240px; margin:0 auto; padding:20px 22px 60px; display:flex; flex-direction:column; gap:20px}
+
+  section{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px}
+  section > h2{
+    margin:0 0 4px; font-size:13px; letter-spacing:.18em; color:var(--accent); font-weight:800;
+  }
+  section > .desc{margin:0 0 14px; color:var(--sub); font-size:13px}
+
+  label{font-size:12px; color:var(--sub); display:block; margin-bottom:4px}
+  input[type=text],input[type=password],input[type=number],textarea,select{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px;
+    background:var(--bg); color:var(--ink); font:inherit;
+  }
+  textarea{resize:vertical}
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--accent); outline-offset:1px; border-color:transparent}
+  button{
+    font:inherit; font-weight:700; border:none; border-radius:7px; cursor:pointer;
+    padding:8px 14px; background:var(--ink); color:var(--panel);
+  }
+  button:hover{opacity:.88}
+  button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  button.ghost{background:transparent; color:var(--ink); border:1px solid var(--line)}
+  button.accent{background:var(--accent); color:#fff}
+  button.small{padding:4px 9px; font-size:12px; font-weight:600}
+  .row{display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap}
+  .row > div{flex:1; min-width:140px}
+  .status{font-size:12.5px; margin-top:8px; min-height:18px}
+  .status.ok{color:var(--ok)} .status.err{color:var(--accent)}
+
+  /* 장면 카드 */
+  #scenes{display:flex; flex-direction:column; gap:12px}
+  .scene{
+    border:1px solid var(--line); border-radius:9px; padding:12px 14px; background:var(--bg);
+  }
+  .scene .head{display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap}
+  .scene .head .idwrap{flex:0 0 170px}
+  .scene .head .typewrap{flex:0 0 130px}
+  .scene .head .spacer{flex:1}
+  .badge{
+    font-size:11px; font-weight:800; letter-spacing:.1em; padding:2px 8px; border-radius:20px;
+    background:var(--accent-soft); color:var(--accent);
+  }
+  .choice-row,.branch-row{display:flex; gap:8px; margin-top:6px; align-items:center; flex-wrap:wrap}
+  .choice-row input.text{flex:2; min-width:120px}
+  .choice-row input.set{flex:1.2; min-width:100px}
+  .choice-row input.target{flex:1; min-width:90px}
+  .branch-row select{flex:0 0 70px; width:70px}
+  .branch-row input.val{flex:0 0 70px; width:70px}
+  .branch-row input.target{flex:1; min-width:90px}
+  .subtle{font-size:12px; color:var(--sub)}
+
+  /* 결과: 분기도 + 코드 */
+  .result{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media (max-width:980px){ .result{grid-template-columns:1fr} }
+  .pane{border:1px solid var(--line); border-radius:9px; overflow:hidden; display:flex; flex-direction:column}
+  .pane .bar{
+    display:flex; align-items:center; gap:8px; padding:8px 12px;
+    border-bottom:1px solid var(--line); font-size:12px; font-weight:700; letter-spacing:.12em; color:var(--sub);
+  }
+  .pane .bar .grow{flex:1}
+  #diagramBox{background:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:22px 22px; background-color:var(--panel);
+    overflow:auto; min-height:380px; flex:1}
+  #codeBox{background:var(--code-bg); color:var(--code-ink); margin:0; padding:14px 16px;
+    font-family:Consolas,"Nanum Gothic Coding",monospace; font-size:12.5px; line-height:1.6;
+    overflow:auto; min-height:380px; flex:1; white-space:pre}
+
+  /* 이미지 생성 */
+  #imgResult{margin-top:12px; display:flex; gap:14px; flex-wrap:wrap}
+  #imgResult img{max-width:420px; width:100%; border-radius:8px; border:1px solid var(--line)}
+  details{margin-top:10px}
+  summary{cursor:pointer; color:var(--sub); font-size:12.5px}
+  footer{max-width:1240px; margin:0 auto; padding:0 22px 40px; color:var(--sub); font-size:12px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>나니 분기 스튜디오<span class="dot">.</span></h1>
+  <span class="hint">분기도 그리고 → 나니노벨 1.18.1 코드로 내보내기 · AI 뼈대 생성(Gemini) · 이미지 생성(무료)</span>
+</header>
+
+<main>
+
+  <!-- ① API 키 -->
+  <section>
+    <h2>① API 키</h2>
+    <p class="desc">Google AI Studio(<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>)에서 무료로 발급 — 카드 등록 필요 없음. 키는 <b>이 브라우저(내 컴퓨터)에만</b> 저장되고 Google 외 어디로도 전송되지 않아요.</p>
+    <div class="row">
+      <div style="flex:2">
+        <label for="apiKey">Gemini API 키</label>
+        <input type="password" id="apiKey" placeholder="AIza...">
+      </div>
+      <div style="flex:0 0 180px">
+        <label for="model">모델</label>
+        <select id="model">
+          <option value="gemini-2.5-flash">gemini-2.5-flash (권장)</option>
+          <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+        </select>
+      </div>
+      <div style="flex:0 0 auto"><button id="saveKey">키 저장</button></div>
+      <div style="flex:0 0 auto"><button id="testKey" class="ghost">연결 테스트</button></div>
+    </div>
+    <div class="status" id="keyStatus"></div>
+  </section>
+
+  <!-- ② AI 뼈대 생성 -->
+  <section>
+    <h2>② AI로 분기 뼈대 만들기 <span class="subtle">(선택 — 건너뛰고 ③에서 직접 만들어도 됩니다)</span></h2>
+    <p class="desc">시나리오를 줄글로 쓰면, AI가 장면·선택지·분기 구조로 쪼개서 아래 편집기에 채워 줍니다.</p>
+    <textarea id="aiInput" rows="4" placeholder="예) 사막에서 여우를 만난다. 반갑게 인사하면 호감도가 오르고, 퉁명스럽게 굴면 내려간다. 갑자기 비가 오는 사건이 생기고, 우산을 씌워주면 호감도가 더 오른다. 호감도에 따라 해피/노멀/시큰둥 세 가지 엔딩으로 갈린다."></textarea>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:0 0 auto"><button id="aiGen" class="accent">분기 구조 생성</button></div>
+      <div class="subtle">생성하면 현재 편집 내용을 덮어씁니다.</div>
+    </div>
+    <div class="status" id="aiStatus"></div>
+  </section>
+
+  <!-- ③ 장면 편집 -->
+  <section>
+    <h2>③ 장면 편집</h2>
+    <p class="desc">장면(상자) 하나가 나니노벨의 <b># 라벨</b> 하나. 선택지가 있으면 <b>@choice + @stop</b>, 없고 "다음 장면"만 있으면 <b>@goto</b>, 둘 다 없으면 엔딩(<b>@stop</b>)으로 자동 변환됩니다.</p>
+    <div id="scenes"></div>
+    <div class="row" style="margin-top:12px">
+      <div style="flex:0 0 auto"><button id="addScene">+ 일반 장면</button></div>
+      <div style="flex:0 0 auto"><button id="addCond" class="ghost">+ 조건 판정 장면 (@if)</button></div>
+      <div class="grow" style="flex:1"></div>
+      <div style="flex:0 0 auto"><button id="loadSample" class="ghost small">예제(FoxMiyo) 불러오기</button></div>
+      <div style="flex:0 0 auto"><button id="clearAll" class="ghost small">전체 비우기</button></div>
+    </div>
+  </section>
+
+  <!-- ④ 결과 -->
+  <section>
+    <h2>④ 분기도 &amp; 나니노벨 코드</h2>
+    <p class="desc">편집하는 즉시 갱신됩니다. 코드는 Naninovel <b>1.18.1</b> 문법(@endif 필수, @shake 없음)에 맞춰 생성돼요.</p>
+    <div class="result">
+      <div class="pane">
+        <div class="bar">분기도<span class="grow"></span><span class="subtle" id="diagStat"></span></div>
+        <div id="diagramBox"></div>
+      </div>
+      <div class="pane">
+        <div class="bar">.nani 코드<span class="grow"></span>
+          <button class="small ghost" id="copyCode">복사</button>
+          <button class="small" id="dlCode">.nani 다운로드</button>
+        </div>
+        <pre id="codeBox"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑤ 이미지 생성 -->
+  <section>
+    <h2>⑤ 리소스 이미지 생성 <span class="subtle">(키 불필요 · Pollinations 무료 API)</span></h2>
+    <p class="desc">배경·캐릭터 시안을 뽑아서 유니티에 등록해 보세요. 프롬프트는 영어가 품질이 좋습니다.</p>
+    <div class="row">
+      <div style="flex:2">
+        <label for="imgPrompt">프롬프트</label>
+        <input type="text" id="imgPrompt" placeholder="a desert oasis, visual novel background, anime style, warm light">
+      </div>
+      <div style="flex:0 0 170px">
+        <label for="imgPreset">용도</label>
+        <select id="imgPreset">
+          <option value="visual novel background art, anime style, no people, 16:9">배경 (16:9)</option>
+          <option value="visual novel character standing sprite, full body, anime style, plain background">캐릭터 스탠딩</option>
+          <option value="">프리셋 없음</option>
+        </select>
+      </div>
+      <div style="flex:0 0 auto"><button id="imgGen" class="accent">이미지 생성</button></div>
+    </div>
+    <div class="status" id="imgStatus"></div>
+    <div id="imgResult"></div>
+  </section>
+
+</main>
+
+<footer>
+  나니 분기 스튜디오 · 정적 단일 파일 — GitHub Pages 등에 이 파일 하나만 올리면 배포 끝.
+  프로젝트는 브라우저에 자동 저장됩니다.
+</footer>
+
+<script>
+"use strict";
+/* ───────────────────────── 상태 ───────────────────────── */
+const LS_KEY="nbs_gemini_key", LS_MODEL="nbs_model", LS_STORY="nbs_story";
+let story={scenes:[]};
+
+const SAMPLE={scenes:[
+ {type:"normal",id:"Start",bg:"Desert",bgm:"GrandFather",
+  lines:["@char fox pos:80","@char miyo pos:30","miyo: 사막에서 여우를 만났어!"],
+  choices:[
+   {text:"반갑게 인사한다",set:"affinity+=2",target:"Rain"},
+   {text:"가만히 지켜본다",set:"",target:"Rain"},
+   {text:"퉁명스럽게 군다",set:"affinity-=1",target:"Rain"}],
+  next:""},
+ {type:"normal",id:"Rain",bg:"",bgm:"",
+  lines:["@spawn ShakeCamera","@spawn Rain","fox.Pain: 으악, 갑자기 비가 쏟아져!"],
+  choices:[
+   {text:"우산을 씌워준다",set:"affinity+=2",target:"Judge"},
+   {text:"같이 뛴다",set:"affinity+=1",target:"Judge"}],
+  next:""},
+ {type:"cond",id:"Judge",var:"affinity",
+  branches:[{op:">=",val:4,target:"Happy"},{op:">=",val:2,target:"Normal"}],elseTarget:"Bad"},
+ {type:"normal",id:"Happy",bg:"",bgm:"",lines:["@despawn Rain","@char fox.Happy scale:1.1","fox: 우리 최고의 친구가 된 것 같아!"],choices:[],next:""},
+ {type:"normal",id:"Normal",bg:"",bgm:"",lines:["@despawn Rain","fox: 오늘 정말 고마웠어."],choices:[],next:""},
+ {type:"normal",id:"Bad",bg:"",bgm:"",lines:["@despawn Rain","fox: ...뭐, 나쁘진 않았어."],choices:[],next:""}
+]};
+
+/* ───────────────────────── 유틸 ───────────────────────── */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function setStatus(el,msg,ok){el.textContent=msg;el.className="status "+(ok?"ok":"err");}
+function save(){localStorage.setItem(LS_STORY,JSON.stringify(story));}
+
+/* ───────────────────────── ① API 키 ───────────────────────── */
+$("apiKey").value=localStorage.getItem(LS_KEY)||"";
+$("model").value=localStorage.getItem(LS_MODEL)||"gemini-2.5-flash";
+$("saveKey").onclick=()=>{
+  localStorage.setItem(LS_KEY,$("apiKey").value.trim());
+  localStorage.setItem(LS_MODEL,$("model").value);
+  setStatus($("keyStatus"),"저장했습니다. (이 브라우저에만 보관됩니다)",true);
+};
+$("testKey").onclick=async()=>{
+  setStatus($("keyStatus"),"테스트 중...",true);
+  try{
+    const t=await gemini("답변은 정확히 'OK' 두 글자만.");
+    setStatus($("keyStatus"),t.trim().startsWith("OK")?"연결 성공! 키가 정상 작동합니다.":"응답은 왔지만 내용이 예상과 달라요: "+t.slice(0,40),true);
+  }catch(e){ setStatus($("keyStatus"),"실패: "+e.message,false); }
+};
+async function gemini(prompt){
+  const key=$("apiKey").value.trim()||localStorage.getItem(LS_KEY);
+  if(!key) throw new Error("API 키를 먼저 입력·저장해 주세요.");
+  const model=$("model").value;
+  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+  });
+  if(!res.ok){
+    let msg="HTTP "+res.status;
+    try{msg+=" — "+(await res.json()).error.message.slice(0,160);}catch(_){}
+    if(res.status===400||res.status===403)msg+=" (키가 올바른지 확인)";
+    if(res.status===429)msg+=" (무료 한도 초과 — 잠시 후 재시도)";
+    throw new Error(msg);
+  }
+  const data=await res.json();
+  const t=data?.candidates?.[0]?.content?.parts?.map(p=>p.text).join("")??"";
+  if(!t) throw new Error("빈 응답을 받았습니다.");
+  return t;
+}
+
+/* ───────────────────────── ② AI 뼈대 생성 ───────────────────────── */
+$("aiGen").onclick=async()=>{
+  const src=$("aiInput").value.trim();
+  if(!src){setStatus($("aiStatus"),"시나리오 줄글을 먼저 적어 주세요.",false);return;}
+  setStatus($("aiStatus"),"생성 중... (수 초 걸립니다)",true);
+  const prompt=
+`너는 비주얼노벨 분기 설계 도우미다. 아래 시나리오를 장면 구조 JSON으로 변환해라.
+반드시 JSON만 출력한다. 설명, 코드펜스, 다른 텍스트 금지.
+
+스키마:
+{"scenes":[
+ {"type":"normal","id":"영문라벨","bg":"배경이름(모르면 빈문자열)","bgm":"","lines":["화자id: 대사","@명령어 ..."],"choices":[{"text":"선택지 문구","set":"affinity+=2 형식 또는 빈문자열","target":"이동할 라벨"}],"next":"선택지 없을 때 다음 라벨(엔딩이면 빈문자열)"},
+ {"type":"cond","id":"영문라벨","var":"변수명","branches":[{"op":">=","val":4,"target":"라벨"},{"op":">=","val":2,"target":"라벨"}],"elseTarget":"라벨"}
+]}
+
+규칙:
+- 라벨(id)은 영문/숫자만. 첫 장면이 시작점이다.
+- 장면 5~10개, 엔딩 2~3개로 구성.
+- 대사는 "화자id: 내용" 형식. 화자id는 짧은 영문(fox, miyo 등).
+- lines에 넣는 명령어는 Naninovel 1.18.1에 실존하는 것만: @back, @char, @bgm, @sfx, @wait, @camera, @spawn, @despawn.
+- @shake라는 명령어는 존재하지 않는다. 흔들기는 @spawn ShakeCamera 또는 @spawn ShakeCharacter params:캐릭터id.
+- 변수 증감은 choices의 set에만 넣는다 (예: "affinity+=2").
+- 조건 분기가 필요하면 type:"cond" 장면 하나로 처리한다.
+
+시나리오:
+${src}`;
+  try{
+    let t=(await gemini(prompt)).trim();
+    t=t.replace(/^```(json)?/i,"").replace(/```$/,"").trim();
+    const first=t.indexOf("{"), last=t.lastIndexOf("}");
+    if(first<0||last<0) throw new Error("JSON을 찾지 못했습니다.");
+    const parsed=JSON.parse(t.slice(first,last+1));
+    if(!Array.isArray(parsed.scenes)||!parsed.scenes.length) throw new Error("scenes가 비어 있습니다.");
+    story={scenes:parsed.scenes.map(normalizeScene)};
+    save(); renderScenes(); renderAll();
+    setStatus($("aiStatus"),`완료! 장면 ${story.scenes.length}개가 편집기에 채워졌습니다. ③에서 다듬어 보세요.`,true);
+  }catch(e){ setStatus($("aiStatus"),"실패: "+e.message,false); }
+};
+function normalizeScene(s){
+  if(s.type==="cond") return {type:"cond",id:String(s.id||"Judge"),var:String(s.var||"affinity"),
+    branches:(s.branches||[]).map(b=>({op:b.op===">"?">":">=",val:Number(b.val)||0,target:String(b.target||"")})),
+    elseTarget:String(s.elseTarget||"")};
+  return {type:"normal",id:String(s.id||"Scene"),bg:String(s.bg||""),bgm:String(s.bgm||""),
+    lines:(s.lines||[]).map(String),
+    choices:(s.choices||[]).map(c=>({text:String(c.text||""),set:String(c.set||""),target:String(c.target||"")})),
+    next:String(s.next||"")};
+}
+
+/* ───────────────────────── ③ 장면 편집기 ───────────────────────── */
+function renderScenes(){
+  const box=$("scenes"); box.innerHTML="";
+  story.scenes.forEach((s,i)=>box.appendChild(s.type==="cond"?condCard(s,i):sceneCard(s,i)));
+  refreshDatalist();
+}
+function headHTML(s,i,badge){
+  return `<div class="head">
+    <span class="badge">${badge}</span>
+    <div class="idwrap"><label>라벨 (영문)</label><input type="text" class="f-id" value="${esc(s.id)}"></div>
+    <div class="spacer"></div>
+    <button class="small ghost mv-up" title="위로">↑</button>
+    <button class="small ghost mv-dn" title="아래로">↓</button>
+    <button class="small ghost del" title="삭제">✕</button>
+  </div>`;
+}
+function sceneCard(s,i){
+  const d=document.createElement("div"); d.className="scene";
+  d.innerHTML=headHTML(s,i,"장면")+
+  `<div class="row">
+    <div><label>배경 (@back, 비우면 생략)</label><input type="text" class="f-bg" value="${esc(s.bg)}" placeholder="Desert"></div>
+    <div><label>BGM (@bgm, 비우면 생략)</label><input type="text" class="f-bgm" value="${esc(s.bgm)}" placeholder="GrandFather"></div>
+  </div>
+  <div style="margin-top:8px"><label>내용 — 한 줄에 하나 ("fox: 대사" 또는 "@명령어")</label>
+    <textarea class="f-lines" rows="3">${esc((s.lines||[]).join("\n"))}</textarea></div>
+  <div style="margin-top:8px"><label>선택지 (있으면 @choice + @stop 자동 생성)</label>
+    <div class="choices"></div>
+    <button class="small ghost addch" style="margin-top:6px">+ 선택지</button></div>
+  <div class="row" style="margin-top:8px">
+    <div><label>선택지가 없을 때 다음 장면 (@goto · 비우면 엔딩 @stop)</label>
+      <input type="text" class="f-next" list="labels" value="${esc(s.next)}" placeholder="라벨 입력"></div>
+  </div>`;
+  const chBox=d.querySelector(".choices");
+  (s.choices||[]).forEach((c,ci)=>chBox.appendChild(choiceRow(s,ci)));
+  d.querySelector(".addch").onclick=()=>{s.choices.push({text:"",set:"",target:""});save();renderScenes();renderAll();};
+  bindCommon(d,s,i);
+  d.querySelector(".f-bg").oninput=e=>{s.bg=e.target.value;upd();};
+  d.querySelector(".f-bgm").oninput=e=>{s.bgm=e.target.value;upd();};
+  d.querySelector(".f-lines").oninput=e=>{s.lines=e.target.value.split("\n");upd();};
+  d.querySelector(".f-next").oninput=e=>{s.next=e.target.value.trim();upd();};
+  return d;
+}
+function choiceRow(s,ci){
+  const c=s.choices[ci];
+  const r=document.createElement("div"); r.className="choice-row";
+  r.innerHTML=`<input type="text" class="text" value="${esc(c.text)}" placeholder="선택지 문구">
+    <input type="text" class="set" value="${esc(c.set)}" placeholder="set (예: affinity+=2)">
+    <input type="text" class="target" list="labels" value="${esc(c.target)}" placeholder="→ 라벨">
+    <button class="small ghost">✕</button>`;
+  r.querySelector(".text").oninput=e=>{c.text=e.target.value;upd();};
+  r.querySelector(".set").oninput=e=>{c.set=e.target.value.trim();upd();};
+  r.querySelector(".target").oninput=e=>{c.target=e.target.value.trim();upd();};
+  r.querySelector("button").onclick=()=>{s.choices.splice(ci,1);save();renderScenes();renderAll();};
+  return r;
+}
+function condCard(s,i){
+  const d=document.createElement("div"); d.className="scene";
+  d.innerHTML=headHTML(s,i,"조건 @if")+
+  `<div class="row"><div style="flex:0 0 200px"><label>판정할 변수</label>
+    <input type="text" class="f-var" value="${esc(s.var)}" placeholder="affinity"></div></div>
+  <div style="margin-top:8px"><label>분기 (위에서부터 순서대로 검사 → @if / @elseif)</label>
+    <div class="branches"></div>
+    <button class="small ghost addbr" style="margin-top:6px">+ 분기</button></div>
+  <div class="row" style="margin-top:8px">
+    <div><label>그 외 (@else) → 장면</label>
+      <input type="text" class="f-else" list="labels" value="${esc(s.elseTarget)}" placeholder="라벨"></div>
+  </div>`;
+  const bBox=d.querySelector(".branches");
+  (s.branches||[]).forEach((b,bi)=>{
+    const r=document.createElement("div"); r.className="branch-row";
+    r.innerHTML=`<select><option ${b.op===">="?"selected":""}>&gt;=</option><option ${b.op===">"?"selected":""}>&gt;</option></select>
+      <input type="number" class="val" value="${b.val}">
+      <span class="subtle">→</span>
+      <input type="text" class="target" list="labels" value="${esc(b.target)}" placeholder="라벨">
+      <button class="small ghost">✕</button>`;
+    r.querySelector("select").onchange=e=>{b.op=e.target.value.includes("=")?">=":">";upd();};
+    r.querySelector(".val").oninput=e=>{b.val=Number(e.target.value)||0;upd();};
+    r.querySelector(".target").oninput=e=>{b.target=e.target.value.trim();upd();};
+    r.querySelector("button").onclick=()=>{s.branches.splice(bi,1);save();renderScenes();renderAll();};
+    bBox.appendChild(r);
+  });
+  d.querySelector(".addbr").onclick=()=>{s.branches.push({op:">=",val:0,target:""});save();renderScenes();renderAll();};
+  bindCommon(d,s,i);
+  d.querySelector(".f-var").oninput=e=>{s.var=e.target.value.trim();upd();};
+  d.querySelector(".f-else").oninput=e=>{s.elseTarget=e.target.value.trim();upd();};
+  return d;
+}
+function bindCommon(d,s,i){
+  d.querySelector(".f-id").oninput=e=>{s.id=e.target.value.trim();upd();refreshDatalist();};
+  d.querySelector(".del").onclick=()=>{story.scenes.splice(i,1);save();renderScenes();renderAll();};
+  d.querySelector(".mv-up").onclick=()=>{if(i>0){[story.scenes[i-1],story.scenes[i]]=[story.scenes[i],story.scenes[i-1]];save();renderScenes();renderAll();}};
+  d.querySelector(".mv-dn").onclick=()=>{if(i<story.scenes.length-1){[story.scenes[i+1],story.scenes[i]]=[story.scenes[i],story.scenes[i+1]];save();renderScenes();renderAll();}};
+}
+function refreshDatalist(){
+  let dl=$("labels");
+  if(!dl){dl=document.createElement("datalist");dl.id="labels";document.body.appendChild(dl);}
+  dl.innerHTML=story.scenes.map(s=>`<option value="${esc(s.id)}">`).join("");
+}
+function upd(){save();renderAll();}
+
+$("addScene").onclick=()=>{story.scenes.push({type:"normal",id:"Scene"+(story.scenes.length+1),bg:"",bgm:"",lines:[],choices:[],next:""});save();renderScenes();renderAll();};
+$("addCond").onclick=()=>{story.scenes.push({type:"cond",id:"Judge",var:"affinity",branches:[{op:">=",val:2,target:""}],elseTarget:""});save();renderScenes();renderAll();};
+$("loadSample").onclick=()=>{story=JSON.parse(JSON.stringify(SAMPLE));save();renderScenes();renderAll();};
+$("clearAll").onclick=()=>{if(confirm("모든 장면을 지울까요?")){story={scenes:[]};save();renderScenes();renderAll();}};
+
+/* ───────────────────────── ④-a 코드 생성 (1.18.1) ───────────────────────── */
+function collectVars(){
+  const vars=new Set();
+  story.scenes.forEach(s=>{
+    if(s.type==="cond"&&s.var)vars.add(s.var);
+    (s.choices||[]).forEach(c=>{
+      const m=String(c.set||"").match(/^\s*([A-Za-z_]\w*)/);
+      if(m)vars.add(m[1]);
+    });
+  });
+  return [...vars];
+}
+function genCode(){
+  if(!story.scenes.length)return"; 장면을 추가하면 코드가 여기 생성됩니다.";
+  const L=[];
+  L.push("; ── 나니 분기 스튜디오에서 생성 (Naninovel 1.18.1 문법) ──");
+  const vars=collectVars();
+  if(vars.length){vars.forEach(v=>L.push(`@set ${v}=0`));L.push("");}
+  story.scenes.forEach(s=>{
+    L.push(`# ${s.id||"Scene"}`);
+    if(s.type==="cond"){
+      const v=s.var||"affinity";
+      (s.branches||[]).forEach((b,bi)=>{
+        L.push(`${bi===0?"@if":"@elseif"} ${v}${b.op}${b.val}`);
+        L.push(`@goto .${b.target||"???"}`);
+      });
+      L.push("@else");
+      L.push(`@goto .${s.elseTarget||"???"}`);
+      L.push("@endif");
+    }else{
+      if(s.bg)L.push(`@back ${s.bg}`);
+      if(s.bgm)L.push(`@bgm ${s.bgm}`);
+      (s.lines||[]).forEach(ln=>{if(ln.trim())L.push(ln);});
+      if((s.choices||[]).length){
+        s.choices.forEach(c=>{
+          let cmd=`@choice "${(c.text||"...").replace(/"/g,"'")}"`;
+          if(c.set)cmd+=` set:${c.set}`;
+          if(c.target)cmd+=` goto:.${c.target}`;
+          L.push(cmd);
+        });
+        L.push("@stop");
+      }else if(s.next){
+        L.push(`@goto .${s.next}`);
+      }else{
+        L.push("@stop");
+      }
+    }
+    L.push("");
+  });
+  return L.join("\n");
+}
+$("copyCode").onclick=async()=>{
+  try{await navigator.clipboard.writeText($("codeBox").textContent);
+    $("copyCode").textContent="복사됨!";setTimeout(()=>$("copyCode").textContent="복사",1200);
+  }catch(e){alert("복사 실패 — 코드를 드래그해서 복사해 주세요.");}
+};
+$("dlCode").onclick=()=>{
+  const blob=new Blob([$("codeBox").textContent],{type:"text/plain;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download="MyStory.nani";a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+/* ───────────────────────── ④-b 분기도 (SVG) ───────────────────────── */
+function genDiagram(){
+  const box=$("diagramBox");
+  if(!story.scenes.length){box.innerHTML="";$("diagStat").textContent="";return;}
+  const byId=new Map(story.scenes.map(s=>[s.id,s]));
+  const edges=[]; const ghost=new Set();
+  story.scenes.forEach(s=>{
+    const outs=s.type==="cond"
+      ?[...(s.branches||[]).map(b=>({t:b.target,lab:`${s.var||""}${b.op}${b.val}`})),{t:s.elseTarget,lab:"그 외"}]
+      :((s.choices||[]).length
+        ?s.choices.map(c=>({t:c.target,lab:(c.text||"").slice(0,10)+(c.set?` (${c.set})`:"")}))
+        :(s.next?[{t:s.next,lab:""}]:[]));
+    outs.forEach(o=>{if(!o.t)return; if(!byId.has(o.t))ghost.add(o.t); edges.push({from:s.id,to:o.t,lab:o.lab});});
+  });
+  // BFS 레벨
+  const level=new Map();
+  const rootId=story.scenes[0].id;
+  const q=[[rootId,0]];
+  while(q.length){
+    const [id,lv]=q.shift();
+    if(level.has(id))continue;
+    level.set(id,lv);
+    edges.filter(e=>e.from===id).forEach(e=>{if(!level.has(e.to))q.push([e.to,lv+1]);});
+  }
+  story.scenes.forEach(s=>{if(!level.has(s.id))level.set(s.id,(Math.max(0,...level.values())+1));});
+  ghost.forEach(g=>{if(!level.has(g))level.set(g,(Math.max(0,...level.values())+1));});
+  // 좌표
+  const levels=new Map();
+  [...level.entries()].forEach(([id,lv])=>{if(!levels.has(lv))levels.set(lv,[]);levels.get(lv).push(id);});
+  const NW=150,NH=44,VGAP=112;
+  const maxPer=Math.max(...[...levels.values()].map(a=>a.length));
+  const W=Math.max(680,maxPer*(NW+56)+60);
+  const H=(Math.max(...levels.keys())+1)*VGAP+70;
+  const pos=new Map();
+  levels.forEach((ids,lv)=>{
+    ids.forEach((id,i)=>{
+      const x=W/2+(i-(ids.length-1)/2)*(NW+56);
+      pos.set(id,{x,y:50+lv*VGAP});
+    });
+  });
+  // SVG
+  const isEnd=id=>{const s=byId.get(id);return s&&s.type==="normal"&&!(s.choices||[]).length&&!s.next;};
+  let g="";
+  edges.forEach(e=>{
+    const a=pos.get(e.from),b=pos.get(e.to);
+    if(!a||!b)return;
+    const y1=a.y+NH/2, y2=b.y-NH/2-4;
+    g+=`<line x1="${a.x}" y1="${y1}" x2="${b.x}" y2="${y2}" stroke="#8a8a8a" stroke-width="1.4" marker-end="url(#ar)"/>`;
+    if(e.lab){
+      const mx=(a.x+b.x)/2, my=(y1+y2)/2-4;
+      g+=`<text x="${mx}" y="${my}" text-anchor="middle" font-size="11" fill="#b3261e" font-weight="700">${esc(e.lab)}</text>`;
+    }
+  });
+  [...level.keys()].forEach(id=>{
+    const p=pos.get(id); if(!p)return;
+    const s=byId.get(id);
+    if(!s){ // 존재하지 않는 라벨(고스트)
+      g+=`<rect x="${p.x-NW/2}" y="${p.y-NH/2}" width="${NW}" height="${NH}" rx="7" fill="none" stroke="#b3261e" stroke-dasharray="5 4" stroke-width="1.4"/>
+      <text x="${p.x}" y="${p.y+4}" text-anchor="middle" font-size="12" fill="#b3261e">${esc(id)} (없음!)</text>`;
+      return;
+    }
+    if(s.type==="cond"){
+      g+=`<polygon points="${p.x},${p.y-NH/2-6} ${p.x+NW/2+10},${p.y} ${p.x},${p.y+NH/2+6} ${p.x-NW/2-10},${p.y}" fill="#e1d5e7" stroke="#9673a6" stroke-width="1.4"/>
+      <text x="${p.x}" y="${p.y+4}" text-anchor="middle" font-size="12" fill="#1a1a1a">@if ${esc(s.var||"")}</text>`;
+    }else{
+      const fill=isEnd(id)?"#d5e8d4":"#dae8fc", stroke=isEnd(id)?"#82b366":"#6c8ebf";
+      g+=`<rect x="${p.x-NW/2}" y="${p.y-NH/2}" width="${NW}" height="${NH}" rx="7" fill="${fill}" stroke="${stroke}" stroke-width="1.4"/>
+      <text x="${p.x}" y="${p.y+4}" text-anchor="middle" font-size="12.5" fill="#1a1a1a">${esc(id)}</text>`;
+    }
+  });
+  box.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin:auto">
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#8a8a8a"/></marker></defs>${g}</svg>`;
+  const dangling=[...ghost];
+  $("diagStat").textContent=dangling.length?`⚠ 없는 라벨: ${dangling.join(", ")}`:`장면 ${story.scenes.length} · 연결 ${edges.length}`;
+}
+function renderAll(){ $("codeBox").textContent=genCode(); genDiagram(); refreshDatalist(); }
+
+/* ───────────────────────── ⑤ 이미지 생성 ───────────────────────── */
+$("imgGen").onclick=()=>{
+  const p=$("imgPrompt").value.trim();
+  if(!p){setStatus($("imgStatus"),"프롬프트를 입력해 주세요.",false);return;}
+  const preset=$("imgPreset").value;
+  const full=preset?`${p}, ${preset}`:p;
+  const url=`https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=1024&height=576&nologo=true&seed=${Math.floor(Math.random()*1e6)}`;
+  setStatus($("imgStatus"),"생성 중... (10~30초, 이미지가 아래 나타납니다)",true);
+  const img=new Image();
+  img.alt=full;
+  img.onload=()=>setStatus($("imgStatus"),"완료! 이미지를 우클릭 → '이미지를 다른 이름으로 저장' 후 유니티에 등록하세요.",true);
+  img.onerror=()=>setStatus($("imgStatus"),"생성 실패 — 잠시 후 다시 시도해 주세요.",false);
+  img.src=url;
+  $("imgResult").prepend(img);
+};
+
+/* ───────────────────────── 시작 ───────────────────────── */
+(function init(){
+  try{const saved=localStorage.getItem(LS_STORY);
+    story=saved?JSON.parse(saved):JSON.parse(JSON.stringify(SAMPLE));
+    if(!Array.isArray(story.scenes))throw 0;
+  }catch(_){story=JSON.parse(JSON.stringify(SAMPLE));}
+  renderScenes(); renderAll();
+})();
+</script>
+</body>
+</html>
