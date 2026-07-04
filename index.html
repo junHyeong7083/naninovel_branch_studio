@@ -69,6 +69,12 @@
   }
   .node.ending{border-color:#82b366}
   .node.cond{border-color:#9673a6}
+  .node.selected{outline:2.5px solid var(--accent); outline-offset:1px}
+  #marquee{
+    position:absolute; border:1.5px dashed var(--accent);
+    background:color-mix(in srgb, var(--accent) 10%, transparent);
+    pointer-events:none; z-index:6; display:none;
+  }
   .nhead{
     display:flex; align-items:center; gap:6px;
     background:var(--node-head); border-radius:7px 7px 0 0;
@@ -138,14 +144,17 @@
   <div class="toolbar">
     <button id="addScene">+ 블록 (#라벨)</button>
     <button id="addCond" class="ghost">+ 조건 블록 (@if)</button>
+    <label class="tip" style="display:flex;align-items:center;gap:5px;cursor:pointer">
+      <input type="checkbox" id="optSet" checked> @set 변수 초기화 포함</label>
     <span class="grow"></span>
-    <span class="tip">연결: 선택지 오른쪽 ○를 잡고 다른 블록 위에 놓기 · 해제: 연결선 클릭 · 이동: 제목줄 드래그</span>
+    <span class="tip">연결: ○ 드래그 → 블록에 드롭 · 해제: 연결선 클릭 · 다중 선택: 빈 곳 드래그 · 삭제: Delete</span>
     <button id="loadSample" class="ghost small">예제 불러오기</button>
     <button id="clearAll" class="ghost small">전체 비우기</button>
   </div>
 
   <div id="canvasBox"><div id="canvas">
     <svg id="wires"></svg>
+    <div id="marquee"></div>
   </div></div>
 
   <div class="pane">
@@ -168,8 +177,9 @@
 <script>
 "use strict";
 /* ───────── 상태 ───────── */
-const LS_STORY="nbs_story_v2";
+const LS_STORY="nbs_story_v2", LS_OPTSET="nbs_opt_set";
 let story={scenes:[]};
+let selection=new Set(); // 선택된 블록 id들
 const SAMPLE={scenes:[
  {type:"normal",id:"Start",memo:"사막에서 여우와 첫 만남",x:120,y:60,
   choices:[
@@ -196,7 +206,19 @@ const canvas=$("canvas"), wires=$("wires"), canvasBox=$("canvasBox");
 function renderNodes(){
   canvas.querySelectorAll(".node").forEach(n=>n.remove());
   story.scenes.forEach((s,i)=>canvas.appendChild(s.type==="cond"?condNode(s,i):blockNode(s,i)));
-  renderWires(); renderCode();
+  applySelection(); renderWires(); renderCode();
+}
+function applySelection(){
+  canvas.querySelectorAll(".node").forEach(nd=>{
+    const s=story.scenes[+nd.dataset.i];
+    nd.classList.toggle("selected",!!s&&selection.has(s.id));
+  });
+}
+function uniqueId(base){
+  const ids=new Set(story.scenes.map(s=>s.id));
+  let n=story.scenes.length+1, id=base+n;
+  while(ids.has(id)){n++;id=base+n;}
+  return id;
 }
 function baseNode(s,i,cls){
   const d=document.createElement("div");
@@ -282,15 +304,22 @@ function bindNode(d,s,i,isCond){
     d.querySelector(".nhead").title="라벨: #"+s.id;
   }
   d.querySelector(".ndel").onclick=()=>{story.scenes.splice(i,1);save();renderNodes();};
-  // 드래그 이동
+  // 드래그 이동 — 선택된 블록들은 함께 움직임
   const head=d.querySelector(".nhead");
   head.addEventListener("pointerdown",e=>{
     if(e.target.closest("input,button,.port"))return;
     e.preventDefault();
-    const sx=e.clientX,sy=e.clientY,ox=s.x||60,oy=s.y||60;
+    if(!selection.has(s.id)){selection.clear();selection.add(s.id);applySelection();}
+    const sx=e.clientX,sy=e.clientY;
+    const moving=story.scenes.filter(o=>selection.has(o.id)).map(o=>({o,ox:o.x||60,oy:o.y||60}));
     const move=ev=>{
-      s.x=Math.max(0,ox+ev.clientX-sx); s.y=Math.max(0,oy+ev.clientY-sy);
-      d.style.left=s.x+"px"; d.style.top=s.y+"px"; renderWires();
+      const dx=ev.clientX-sx, dy=ev.clientY-sy;
+      moving.forEach(m=>{
+        m.o.x=Math.max(0,m.ox+dx); m.o.y=Math.max(0,m.oy+dy);
+        const nd=canvas.querySelector(`.node[data-i="${story.scenes.indexOf(m.o)}"]`);
+        if(nd){nd.style.left=m.o.x+"px"; nd.style.top=m.o.y+"px";}
+      });
+      renderWires();
     };
     const up=()=>{save();removeEventListener("pointermove",move);removeEventListener("pointerup",up);};
     addEventListener("pointermove",move); addEventListener("pointerup",up);
@@ -350,6 +379,43 @@ function renderWires(tempFrom,tempTo){
     });
   });
 }
+/* 스타크래프트식 드래그 다중 선택 */
+const marquee=$("marquee");
+canvas.addEventListener("pointerdown",e=>{
+  if(e.target.closest(".node")||e.target.closest(".port")||e.target.closest("path"))return;
+  e.preventDefault();
+  const cr=canvas.getBoundingClientRect();
+  const sx=e.clientX-cr.left, sy=e.clientY-cr.top;
+  let moved=false;
+  const move=ev=>{
+    const cx=ev.clientX-cr.left, cy=ev.clientY-cr.top;
+    if(Math.abs(cx-sx)+Math.abs(cy-sy)>4)moved=true;
+    const x=Math.min(sx,cx), y=Math.min(sy,cy), w=Math.abs(cx-sx), h=Math.abs(cy-sy);
+    Object.assign(marquee.style,{display:"block",left:x+"px",top:y+"px",width:w+"px",height:h+"px"});
+    // 실시간 하이라이트
+    selection.clear();
+    canvas.querySelectorAll(".node").forEach(nd=>{
+      const nx=nd.offsetLeft, ny=nd.offsetTop, nw=nd.offsetWidth, nh=nd.offsetHeight;
+      if(nx<x+w&&nx+nw>x&&ny<y+h&&ny+nh>y)selection.add(story.scenes[+nd.dataset.i].id);
+    });
+    applySelection();
+  };
+  const up=()=>{
+    marquee.style.display="none";
+    if(!moved){selection.clear();applySelection();} // 빈 곳 클릭 = 선택 해제
+    removeEventListener("pointermove",move);removeEventListener("pointerup",up);
+  };
+  addEventListener("pointermove",move); addEventListener("pointerup",up);
+});
+/* Delete 키로 선택 블록 일괄 삭제 */
+addEventListener("keydown",e=>{
+  if(e.key!=="Delete")return;
+  if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||""))return;
+  if(!selection.size)return;
+  story.scenes=story.scenes.filter(s=>!selection.has(s.id));
+  selection.clear(); save(); renderNodes();
+});
+
 /* 포트 드래그로 연결 만들기 */
 canvas.addEventListener("pointerdown",e=>{
   const p=e.target.closest(".port.out"); if(!p)return;
@@ -393,8 +459,10 @@ function genCode(){
   L.push("; ── 나니 분기 스튜디오에서 생성 (Naninovel 1.18.1) ──");
   L.push("; ▼ 표시된 자리에 각자 배경·캐릭터·대사를 채워 넣으세요.");
   L.push("");
-  const vars=collectVars();
-  if(vars.length){vars.forEach(v=>L.push(`@set ${v}=0`));L.push("");}
+  if($("optSet").checked){
+    const vars=collectVars();
+    if(vars.length){vars.forEach(v=>L.push(`@set ${v}=0`));L.push("");}
+  }
   story.scenes.forEach(s=>{
     L.push(`# ${s.id||"Scene"}`);
     if(s.type==="cond"){
@@ -447,8 +515,10 @@ function newPos(){
   const n=story.scenes.length;
   return {x:canvasBox.scrollLeft+60+(n%4)*70, y:canvasBox.scrollTop+60+(n%5)*50};
 }
-$("addScene").onclick=()=>{const p=newPos();story.scenes.push({type:"normal",id:"Scene"+(story.scenes.length+1),memo:"",choices:[{text:"",set:"",target:""}],next:"",...p});save();renderNodes();};
-$("addCond").onclick=()=>{const p=newPos();story.scenes.push({type:"cond",id:"Judge"+(story.scenes.length+1),var:"affinity",branches:[{op:">=",val:2,target:""}],elseTarget:"",...p});save();renderNodes();};
+$("addScene").onclick=()=>{const p=newPos();story.scenes.push({type:"normal",id:uniqueId("Scene"),memo:"",choices:[{text:"",set:"",target:""}],next:"",...p});save();renderNodes();};
+$("addCond").onclick=()=>{const p=newPos();story.scenes.push({type:"cond",id:uniqueId("Judge"),var:"affinity",branches:[{op:">=",val:2,target:""}],elseTarget:"",...p});save();renderNodes();};
+$("optSet").checked=localStorage.getItem(LS_OPTSET)!=="0";
+$("optSet").onchange=()=>{localStorage.setItem(LS_OPTSET,$("optSet").checked?"1":"0");renderCode();};
 $("loadSample").onclick=()=>{story=JSON.parse(JSON.stringify(SAMPLE));save();renderNodes();};
 $("clearAll").onclick=()=>{if(confirm("모든 블록을 지울까요?")){story={scenes:[]};save();renderNodes();}};
 $("copyCode").onclick=async()=>{
