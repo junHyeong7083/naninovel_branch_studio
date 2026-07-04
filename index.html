@@ -88,8 +88,11 @@
     position:absolute; width:240px; background:var(--node);
     border:1.6px solid var(--line); border-radius:9px;
     box-shadow:0 3px 10px rgba(0,0,0,.10);
-    user-select:none;
+    user-select:none; cursor:grab;
   }
+  .node:active{cursor:grabbing}
+  .node input,.node select{cursor:text}
+  .node button{cursor:pointer}
   .node.ending{border-color:#82b366}
   .node.cond{border-color:#9673a6}
   .node.selected{outline:2.5px solid var(--accent); outline-offset:1px}
@@ -370,10 +373,9 @@ function bindNode(d,s,i,isCond){
     d.querySelector(".nhead").title="라벨: #"+s.id;
   }
   d.querySelector(".ndel").onclick=()=>{story.scenes.splice(i,1);save();renderNodes();};
-  // 드래그 이동 — 선택된 블록들은 함께 움직임
-  const head=d.querySelector(".nhead");
-  head.addEventListener("pointerdown",e=>{
-    if(e.target.closest("input,button,.port"))return;
+  // 드래그 이동 — 입력칸·버튼·포트를 제외한 블록 어디를 잡아도 이동, 선택된 블록들은 함께 움직임
+  d.addEventListener("pointerdown",e=>{
+    if(e.target.closest("input,button,select,textarea,.port"))return;
     e.preventDefault();
     if(!selection.has(s.id)){selection.clear();selection.add(s.id);applySelection();}
     const sx=e.clientX,sy=e.clientY;
