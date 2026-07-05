@@ -94,7 +94,20 @@
   .node input,.node select{cursor:text}
   .node button{cursor:pointer}
   .node.ending{border-color:#82b366}
-  .node.cond{border-color:#9673a6}
+  .node.cond{border-color:#9673a6; width:300px}
+  .cif{font-size:12px; color:var(--sub); flex:0 0 auto; white-space:nowrap}
+  .condtog{font-size:11.5px; color:var(--sub); display:flex; gap:5px; align-items:center; cursor:pointer}
+  .nbody input[type=checkbox]{width:auto; accent-color:var(--accent)}
+  .node select{
+    border:1px solid var(--line); border-radius:5px; background:var(--bg);
+    color:var(--ink); font:inherit; font-size:12px; padding:3px 4px;
+  }
+  .cif .vname{color:var(--ink); font-family:Consolas,monospace; font-size:12px}
+  .chint{font-size:11px; color:var(--sub)}
+  .node.cond select{
+    border:1px solid var(--line); border-radius:5px; background:var(--bg);
+    color:var(--ink); font:inherit; font-size:12px; padding:3px 4px;
+  }
   .node.selected{outline:2.5px solid var(--accent); outline-offset:1px}
   #marquee{
     position:absolute; border:1.5px dashed var(--accent);
@@ -156,6 +169,13 @@
     font-family:Consolas,"Nanum Gothic Coding",monospace; font-size:12.5px; line-height:1.6;
     overflow:auto; max-height:420px; white-space:pre}
   footer{max-width:1400px; margin:0 auto; padding:0 20px 36px; color:var(--sub); font-size:12px}
+  #impInput{
+    width:100%; border:none; resize:vertical; display:block;
+    background:var(--code-bg); color:var(--code-ink); padding:12px 16px;
+    font-family:Consolas,"Nanum Gothic Coding",monospace; font-size:12.5px; line-height:1.6;
+  }
+  #impInput:focus{outline:none}
+  #impInput::placeholder{color:#8d8983}
 </style>
 </head>
 <body>
@@ -196,6 +216,16 @@
       <button class="small" id="dlCode">.nani 다운로드</button>
     </div>
     <pre id="codeBox"></pre>
+  </div>
+
+  <div class="pane">
+    <div class="bar">코드 → 분기도 (역변환) — 이미 있는 나니노벨 코드를 붙여넣으면 위 캔버스에 흐름을 그려줍니다
+      <span class="grow"></span>
+      <span class="warn" id="impStatus"></span>
+      <button class="small" id="impRun">분기도로 그리기</button>
+    </div>
+    <textarea id="impInput" rows="8" spellcheck="false" placeholder="여기에 .nani 코드를 붙여넣고 [분기도로 그리기]를 누르세요.
+# 라벨 → 블록, @choice/@goto → 연결선, @if → 조건으로 자동 인식됩니다. (현재 캔버스는 덮어써요)"></textarea>
   </div>
 
 </main>
@@ -261,6 +291,16 @@ function baseNode(s,i,cls){
 function blockNode(s,i){
   const isEnd=!(s.choices||[]).length&&!s.next;
   const d=baseNode(s,i,isEnd?"ending":"");
+  const c=s.cond||{};
+  const copts=COND_OPS.map(([v,l])=>`<option value="${esc(v)}" ${ (c.op||">=")===v?"selected":""}>${l}</option>`).join("");
+  const condUI=`<label class="condtog"><input type="checkbox" class="f-condon" ${c.on?"checked":""}> 블록 안 @if 분기 (조건에 따라 대사가 갈렸다가 다시 이어짐)</label>
+  ${c.on?`<div class="nrow">
+    <input class="f-cvar" value="${esc(c.var||"")}" placeholder="변수" style="flex:1;min-width:70px">
+    <span class="cif">가</span>
+    <input class="f-cval" type="number" value="${c.val??0}" style="flex:0 0 52px">
+    <select class="f-cop" style="flex:0 0 76px">${copts}</select>
+    <span class="cif">이면 / 아니면</span>
+  </div>`:""}`;
   let rows="";
   (s.choices||[]).forEach((c,ci)=>{
     rows+=`<div class="nrow">
@@ -275,6 +315,7 @@ function blockNode(s,i){
       <button class="ndel" title="블록 삭제">✕</button></div>
     <div class="nbody">
       <input class="f-memo" value="${esc(s.memo||"")}" placeholder="뭐 할지 메모 (코드에 ; 주석으로)">
+      ${condUI}
       ${rows}
       <button class="small ghost addch">+ 선택지</button>
       ${!(s.choices||[]).length?`<div class="nfoot"><span class="lab">${isEnd?"엔딩 (@stop)":"다음 블록으로 (@goto)"}</span>
@@ -282,35 +323,55 @@ function blockNode(s,i){
     </div>`;
   bindNode(d,s,i);
   d.querySelector(".f-memo").oninput=e=>{s.memo=e.target.value;save();renderCode();};
+  d.querySelector(".f-condon").onchange=e=>{
+    s.cond=s.cond||{var:"affinity",op:">=",val:2};
+    s.cond.on=e.target.checked;
+    save();renderNodes();
+  };
+  if(c.on){
+    d.querySelector(".f-cvar").oninput=e=>{s.cond.var=e.target.value.trim();save();renderCode();};
+    d.querySelector(".f-cval").oninput=e=>{s.cond.val=Number(e.target.value)||0;save();renderCode();};
+    d.querySelector(".f-cop").onchange=e=>{s.cond.op=e.target.value;save();renderCode();};
+  }
   d.querySelectorAll(".f-text").forEach(el=>el.oninput=e=>{s.choices[+el.dataset.ci].text=e.target.value;save();renderCode();});
   d.querySelectorAll(".f-set").forEach(el=>el.oninput=e=>{s.choices[+el.dataset.ci].set=e.target.value.trim();save();renderCode();});
   d.querySelectorAll(".rdel").forEach(el=>el.onclick=()=>{s.choices.splice(+el.dataset.ci,1);save();renderNodes();});
   d.querySelector(".addch").onclick=()=>{s.choices.push({text:"",set:"",target:""});save();renderNodes();};
   return d;
 }
+const COND_OPS=[[">=","이상"],[">","초과"],["<=","이하"],["<","미만"],["==","와 같음"]];
 function condNode(s,i){
   const d=baseNode(s,i,"cond");
+  const vname=esc(s.var||"변수");
   let rows="";
   (s.branches||[]).forEach((b,bi)=>{
+    const opts=COND_OPS.map(([v,l])=>`<option value="${esc(v)}" ${b.op===v?"selected":""}>${l}</option>`).join("");
     rows+=`<div class="nrow">
-      <select data-bi="${bi}" style="flex:0 0 58px"><option ${b.op===">="?"selected":""}>&gt;=</option><option ${b.op===">"?"selected":""}>&gt;</option></select>
-      <input class="f-val" data-bi="${bi}" type="number" value="${b.val}" style="flex:0 0 62px">
-      <button class="rdel" data-bi="${bi}" title="분기 삭제">✕</button>
-      <span class="port out ${b.target?"linked":""}" data-kind="branch" data-bi="${bi}"></span>
+      <span class="cif"><b class="vname">${vname}</b>가</span>
+      <input class="f-val" data-bi="${bi}" type="number" value="${b.val}" style="flex:0 0 52px">
+      <select data-bi="${bi}" style="flex:0 0 76px">${opts}</select>
+      <span class="cif">이면</span>
+      <button class="rdel" data-bi="${bi}" title="조건 삭제">✕</button>
+      <span class="port out ${b.target?"linked":""}" data-kind="branch" data-bi="${bi}" title="조건이 맞으면 갈 블록에 연결"></span>
     </div>`;
   });
-  d.innerHTML=`<div class="nhead"><span class="port in"></span>
-      <span class="ntag">@if</span><input class="f-var" value="${esc(s.var||"")}" placeholder="변수명" spellcheck="false">
+  d.innerHTML=`<div class="nhead"><span class="port in" title="선택지가 끝난 블록을 여기로 연결"></span>
+      <span class="ntag">@if</span><input class="f-var" value="${esc(s.var||"")}" placeholder="판정할 변수 (예: affinity)" spellcheck="false">
       <button class="ndel">✕</button></div>
     <div class="nbody">
+      <div class="chint">위 조건부터 순서대로 검사해요</div>
       ${rows}
-      <button class="small ghost addbr">+ 분기</button>
-      <div class="nfoot"><span class="lab">그 외 (@else)</span>
-        <span class="port out ${s.elseTarget?"linked":""}" data-kind="else"></span></div>
+      <button class="small ghost addbr">+ 조건 추가</button>
+      <div class="nfoot"><span class="lab">어느 것도 아니면 (그 외)</span>
+        <span class="port out ${s.elseTarget?"linked":""}" data-kind="else" title="모든 조건이 안 맞을 때 갈 블록에 연결"></span></div>
     </div>`;
   bindNode(d,s,i,true);
-  d.querySelector(".f-var").oninput=e=>{s.var=e.target.value.trim();save();renderCode();};
-  d.querySelectorAll("select").forEach(el=>el.onchange=e=>{s.branches[+el.dataset.bi].op=e.target.value.includes("=")?">=":">";save();renderCode();});
+  d.querySelector(".f-var").oninput=e=>{
+    s.var=e.target.value.trim();
+    d.querySelectorAll(".vname").forEach(x=>x.textContent=s.var||"변수");
+    save();renderCode();
+  };
+  d.querySelectorAll("select").forEach(el=>el.onchange=e=>{s.branches[+el.dataset.bi].op=e.target.value;save();renderCode();});
   d.querySelectorAll(".f-val").forEach(el=>el.oninput=e=>{s.branches[+el.dataset.bi].val=Number(e.target.value)||0;save();renderCode();});
   d.querySelectorAll(".rdel").forEach(el=>el.onclick=()=>{s.branches.splice(+el.dataset.bi,1);save();renderNodes();});
   d.querySelector(".addbr").onclick=()=>{s.branches.push({op:">=",val:0,target:""});save();renderNodes();};
@@ -542,6 +603,7 @@ function collectVars(){
   const vars=new Set();
   story.scenes.forEach(s=>{
     if(s.type==="cond"&&s.var)vars.add(s.var);
+    if(s.type!=="cond"&&s.cond&&s.cond.on&&s.cond.var)vars.add(s.cond.var);
     (s.choices||[]).forEach(c=>{
       const m=String(c.set||"").match(/^\s*([A-Za-z_]\w*)/);
       if(m)vars.add(m[1]);
@@ -580,8 +642,18 @@ function genCode(){
       L.push("@stop");
     }else{
       if(s.memo)L.push(`; ▶ ${s.memo}`);
-      L.push("; ▼ 여기에 이 장면의 내용 채우기");
-      L.push("");
+      if(s.cond&&s.cond.on){
+        L.push(`@if ${s.cond.var||"affinity"}${s.cond.op||">="}${s.cond.val??0}`);
+        L.push("; ▼ 조건이 맞을 때 내용 채우기 (예: @char fox.Happy / fox: 대사)");
+        L.push("");
+        L.push("@else");
+        L.push("; ▼ 조건이 안 맞을 때 내용 채우기");
+        L.push("");
+        L.push("@endif");
+      }else{
+        L.push("; ▼ 여기에 이 장면의 내용 채우기");
+        L.push("");
+      }
       if((s.choices||[]).length){
         s.choices.forEach(c=>{
           let cmd=`@choice "${(c.text||"...").replace(/"/g,"'")}"`;
@@ -605,6 +677,10 @@ function renderVars(){
     if(s.type==="cond"&&s.var){
       const u=usage.get(s.var)||{sets:new Map(),conds:new Set()};
       u.conds.add(s.id); usage.set(s.var,u);
+    }
+    if(s.type!=="cond"&&s.cond&&s.cond.on&&s.cond.var){
+      const u=usage.get(s.cond.var)||{sets:new Map(),conds:new Set()};
+      u.conds.add(s.id); usage.set(s.cond.var,u);
     }
     (s.choices||[]).forEach(c=>{
       const m=String(c.set||"").match(/^\s*([A-Za-z_]\w*)\s*(.*)$/);
@@ -667,6 +743,101 @@ $("dlCode").onclick=()=>{
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);a.download="MyStory.nani";a.click();
   URL.revokeObjectURL(a.href);
+};
+
+/* ───────── 코드 → 분기도 역변환 ───────── */
+function parseNani(src){
+  // 1) # 라벨 기준으로 블록 나누기
+  const blocks=[]; let cur=null;
+  const open=(id,implicit)=>{cur={id,implicit:!!implicit,memo:"",lines:[]};blocks.push(cur);};
+  src.split(/\r?\n/).forEach(raw=>{
+    const l=raw.trim(); if(!l)return;
+    if(l.startsWith("#")){open(l.slice(1).trim()||("Block"+(blocks.length+1)));return;}
+    if(!cur)open("Start",true);
+    cur.lines.push(l);
+  });
+  // 2) 블록별 내용 해석
+  const scenes=[];
+  blocks.forEach(b=>{
+    const choices=[], ifs=[], plainGotos=[];
+    let elseGoto="", hasElse=false, dialogue=0;
+    let curIf=null, inElse=false;
+    b.lines.forEach(l=>{
+      let m;
+      if(m=l.match(/^@choice\b(.*)$/i)){
+        const rest=m[1];
+        choices.push({
+          text:(rest.match(/"([^"]*)"/)||[])[1]||rest.trim().split(/\s+/)[0]||"",
+          set:(rest.match(/\bset:([^\s"]+)/i)||[])[1]||"",
+          target:(rest.match(/\bgoto:\.?([^\s"]+)/i)||[])[1]||""
+        });
+      }else if(m=l.match(/^@(?:if|elseif)\s+([A-Za-z_]\w*)\s*(>=|<=|==|>|<)\s*(-?\d+(?:\.\d+)?)/i)){
+        curIf={var:m[1],op:m[2],val:Number(m[3]),target:""}; ifs.push(curIf); inElse=false;
+      }else if(/^@else\b/i.test(l)){inElse=true; curIf=null; hasElse=true;
+      }else if(/^@endif\b/i.test(l)){curIf=null; inElse=false;
+      }else if(m=l.match(/^@goto\s+\.([^\s"]+)/i)){
+        if(curIf&&!curIf.target)curIf.target=m[1];
+        else if(inElse&&!elseGoto)elseGoto=m[1];
+        else plainGotos.push(m[1]);
+      }else if(l.startsWith(";")){
+        const c=l.replace(/^;+\s*[▶▼─═]*\s*/,"").trim();
+        if(c&&!b.memo&&!/여기에|채우|채워|생성/.test(c))b.memo=c.slice(0,40);
+      }else if(!l.startsWith("@")){
+        dialogue++;
+        if(!b.memo){const t=l.replace(/^[\w.]+:\s*/,"");b.memo=t.slice(0,30);}
+      }
+    });
+    // 판정 전용 블록(모든 @if 갈래가 @goto로만 구성) → 조건 블록으로
+    const routed=ifs.filter(x=>x.target).length;
+    if(!choices.length&&ifs.length&&routed===ifs.length&&(elseGoto||hasElse)&&dialogue===0){
+      scenes.push({type:"cond",id:b.id,var:ifs[0].var,
+        branches:ifs.map(x=>({op:x.op,val:x.val,target:x.target})),elseTarget:elseGoto,x:0,y:0});
+      return;
+    }
+    // @set·주석뿐인 서두 블록은 버림
+    if(b.implicit&&!choices.length&&!plainGotos.length&&!ifs.length&&dialogue===0)return;
+    const sc={type:"normal",id:b.id,memo:b.memo,choices,
+      next:choices.length?"":(plainGotos[0]||""),x:0,y:0};
+    if(ifs.length)sc.cond={on:true,var:ifs[0].var,op:ifs[0].op,val:ifs[0].val};
+    scenes.push(sc);
+  });
+  return scenes;
+}
+function autoLayout(scenes){
+  const byId=new Map(scenes.map(s=>[s.id,s]));
+  const outsOf=s=>s.type==="cond"
+    ?[...(s.branches||[]).map(b=>b.target),s.elseTarget].filter(Boolean)
+    :[...(s.choices||[]).map(c=>c.target),s.next].filter(Boolean);
+  const level=new Map();
+  if(scenes.length){
+    const q=[[scenes[0].id,0]];
+    while(q.length){
+      const [id,lv]=q.shift();
+      if(level.has(id))continue;
+      level.set(id,lv);
+      const s=byId.get(id);
+      if(s)outsOf(s).forEach(t=>{if(!level.has(t))q.push([t,lv+1]);});
+    }
+  }
+  scenes.forEach(s=>{if(!level.has(s.id))level.set(s.id,(Math.max(-1,...level.values())+1));});
+  const perLv=new Map();
+  scenes.forEach(s=>{
+    const lv=level.get(s.id), idx=perLv.get(lv)||0;
+    perLv.set(lv,idx+1);
+    s.x=70+lv*400; s.y=50+idx*250;
+  });
+}
+$("impRun").onclick=()=>{
+  const src=$("impInput").value;
+  const st=$("impStatus");
+  if(!src.trim()){st.textContent="코드를 먼저 붙여넣어 주세요";return;}
+  const scenes=parseNani(src);
+  if(!scenes.length){st.textContent="해석할 수 있는 내용을 찾지 못했습니다";return;}
+  if(story.scenes.length&&!confirm("현재 캔버스를 지우고 이 코드의 흐름으로 새로 그릴까요?"))return;
+  autoLayout(scenes);
+  story={scenes}; selection.clear(); save(); renderNodes();
+  canvasBox.scrollTo({top:0,left:0,behavior:"smooth"});
+  st.textContent=`블록 ${scenes.length}개로 그렸습니다 — 위 캔버스를 확인하세요`;
 };
 
 /* ───────── 시작 ───────── */
