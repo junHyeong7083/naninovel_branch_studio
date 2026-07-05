@@ -399,6 +399,7 @@ function bindNode(d,s,i,isCond){
   d.querySelector(".ndel").onclick=()=>{story.scenes.splice(i,1);save();renderNodes();};
   // 드래그 이동 — 입력칸·버튼·포트를 제외한 블록 어디를 잡아도 이동, 선택된 블록들은 함께 움직임
   d.addEventListener("pointerdown",e=>{
+    if(e.button!==0)return;
     if(e.target.closest("input,button,select,textarea,.port"))return;
     e.preventDefault();
     if(!selection.has(s.id)){selection.clear();selection.add(s.id);applySelection();}
@@ -521,9 +522,30 @@ canvas.addEventListener("pointerdown",e=>{
   save(); renderNodes();
 },true);
 
-/* 스타크래프트식 드래그 다중 선택 */
+/* 휠 클릭(가운데 버튼) 드래그 = 캔버스 상하좌우 이동 */
+canvasBox.addEventListener("mousedown",e=>{if(e.button===1)e.preventDefault();}); // 브라우저 자동스크롤 차단
+canvasBox.addEventListener("pointerdown",e=>{
+  if(e.button!==1)return;
+  e.preventDefault();
+  const sx=e.clientX, sy=e.clientY, sl=canvasBox.scrollLeft, st=canvasBox.scrollTop;
+  canvasBox.style.cursor="grabbing";
+  const move=ev=>{
+    canvasBox.scrollLeft=sl-(ev.clientX-sx);
+    canvasBox.scrollTop=st-(ev.clientY-sy);
+  };
+  const up=()=>{
+    canvasBox.style.cursor="";
+    removeEventListener("pointermove",move);
+    removeEventListener("pointerup",up);
+    removeEventListener("pointercancel",up);
+  };
+  addEventListener("pointermove",move); addEventListener("pointerup",up); addEventListener("pointercancel",up);
+});
+
+/* 스타크래프트식 드래그 다중 선택 (좌클릭 전용) */
 const marquee=$("marquee");
 canvas.addEventListener("pointerdown",e=>{
+  if(e.button!==0)return;
   if(e.target.closest(".node")||e.target.closest(".port")||e.target.closest("path"))return;
   e.preventDefault();
   const cr=canvas.getBoundingClientRect();
@@ -547,11 +569,12 @@ canvas.addEventListener("pointerdown",e=>{
     });
   };
   const up=()=>{
-    marquee.style.display="none";
+    marquee.style.display="none"; // 마우스를 떼면 선택 영역은 사라지고, 안에 있던 블록만 선택 유지
     if(!moved){selection.clear();applySelection();} // 빈 곳 클릭 = 선택 해제
     removeEventListener("pointermove",move);removeEventListener("pointerup",up);
+    removeEventListener("pointercancel",up);
   };
-  addEventListener("pointermove",move); addEventListener("pointerup",up);
+  addEventListener("pointermove",move); addEventListener("pointerup",up); addEventListener("pointercancel",up);
 });
 /* Delete 키로 선택 블록 일괄 삭제 */
 addEventListener("keydown",e=>{
@@ -562,8 +585,9 @@ addEventListener("keydown",e=>{
   selection.clear(); save(); renderNodes();
 });
 
-/* 포트 드래그로 연결 만들기 */
+/* 포트 드래그로 연결 만들기 (좌클릭 전용) */
 canvas.addEventListener("pointerdown",e=>{
+  if(e.button!==0)return;
   const p=e.target.closest(".port.out"); if(!p)return;
   e.preventDefault(); e.stopPropagation();
   const nd=p.closest(".node");
