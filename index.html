@@ -157,7 +157,28 @@
   .port.linked{background:var(--wire)}
   .port.linked:hover{background:var(--accent); border-color:var(--accent)}
 
-  /* 결과 */
+  /* 조작법 팝업 */
+  #helpPop{
+    position:absolute; top:12px; right:12px; z-index:9;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px;
+    box-shadow:0 4px 14px rgba(0,0,0,.13); padding:12px 16px;
+    display:flex; flex-direction:column; gap:7px; font-size:12.5px;
+  }
+  #helpPop[hidden]{display:none}
+  .hp-row{display:flex; gap:12px; align-items:baseline}
+  .hp-row b{flex:0 0 70px; color:var(--accent); font-size:11.5px; letter-spacing:.06em}
+
+  /* 결과 (탭) */
+  .tabbtn{
+    background:transparent; border:1px solid transparent; color:var(--sub);
+    font:inherit; font-weight:700; font-size:12px; letter-spacing:.08em;
+    padding:3px 10px; border-radius:6px; cursor:pointer;
+  }
+  .tabbtn:hover{color:var(--ink); opacity:1}
+  .tabbtn.active{color:var(--ink); background:var(--node-head); border-color:var(--line)}
+  #toolsCode,#toolsImp{display:flex; gap:8px; align-items:center}
+  .opt{display:flex; gap:4px; align-items:center; cursor:pointer; font-size:12px; letter-spacing:0; font-weight:600}
+  .opt input{accent-color:var(--accent)}
   .pane{border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel)}
   .pane .bar{
     display:flex; align-items:center; gap:8px; padding:8px 12px;
@@ -182,20 +203,18 @@
 
 <header>
   <h1>나니 분기 스튜디오<span class="dot">.</span></h1>
-  <span class="hint">블록을 놓고 → 포트를 드래그해 연결하고 → 나니노벨 1.18.1 코드로 변환. 대사는 변환된 코드에 직접 채웁니다.</span>
+  <span class="hint">블록으로 분기를 설계하면 나니노벨 코드가 실시간 생성됩니다</span>
 </header>
 
 <main>
 
   <div class="toolbar">
-    <button id="addScene">+ 블록 (#라벨)</button>
-    <button id="addCond" class="ghost">+ 조건 블록 (@if)</button>
-    <label class="tip" style="display:flex;align-items:center;gap:5px;cursor:pointer">
-      <input type="checkbox" id="optSet" checked> @set 변수 초기화 포함</label>
+    <button id="addScene">+ 블록</button>
+    <button id="addCond" class="ghost">+ 조건 블록</button>
+    <button id="helpBtn" class="ghost">?&nbsp; 조작법</button>
     <span class="grow"></span>
-    <span class="tip">연결: ○ 드래그 → 블록에 드롭 · 해제: <b>Alt+클릭</b>(포트=하나, 노드=전부) 또는 연결선 클릭 · 다중 선택: 빈 곳 드래그 · 삭제: Delete</span>
-    <button id="loadSample" class="ghost small">예제 불러오기</button>
-    <button id="clearAll" class="ghost small">전체 비우기</button>
+    <button id="loadSample" class="ghost small">예제</button>
+    <button id="clearAll" class="ghost small">비우기</button>
   </div>
 
   <div class="canvaswrap">
@@ -207,33 +226,40 @@
       <div class="vp-head">사용 중인 변수</div>
       <div id="varList"></div>
     </div>
+    <div id="helpPop" hidden>
+      <div class="hp-row"><b>이동</b>블록을 잡고 드래그</div>
+      <div class="hp-row"><b>연결</b>선택지 ○ 를 잡아 다른 블록에 놓기</div>
+      <div class="hp-row"><b>해제</b>Alt+클릭 (포트=하나 · 블록=전부) / 연결선 클릭</div>
+      <div class="hp-row"><b>다중 선택</b>빈 곳 드래그 · Delete로 일괄 삭제</div>
+      <div class="hp-row"><b>화면 이동</b>휠 클릭 드래그 · 휠 스크롤(Shift=좌우)</div>
+    </div>
   </div>
 
   <div class="pane">
-    <div class="bar">.nani 코드 (실시간 변환)
-      <span class="grow"></span><span class="warn" id="codeWarn"></span>
-      <button class="small ghost" id="copyCode">복사</button>
-      <button class="small" id="dlCode">.nani 다운로드</button>
+    <div class="bar">
+      <button class="tabbtn active" data-tab="code">.nani 코드</button>
+      <button class="tabbtn" data-tab="imp">코드 → 분기도</button>
+      <span class="grow"></span>
+      <span id="toolsCode">
+        <label class="opt"><input type="checkbox" id="optSet" checked> @set 초기화</label>
+        <span class="warn" id="codeWarn"></span>
+        <button class="small ghost" id="copyCode">복사</button>
+        <button class="small" id="dlCode">.nani 다운로드</button>
+      </span>
+      <span id="toolsImp" style="display:none">
+        <span class="warn" id="impStatus"></span>
+        <button class="small" id="impRun">분기도로 그리기</button>
+      </span>
     </div>
     <pre id="codeBox"></pre>
-  </div>
-
-  <div class="pane">
-    <div class="bar">코드 → 분기도 (역변환) — 이미 있는 나니노벨 코드를 붙여넣으면 위 캔버스에 흐름을 그려줍니다
-      <span class="grow"></span>
-      <span class="warn" id="impStatus"></span>
-      <button class="small" id="impRun">분기도로 그리기</button>
-    </div>
-    <textarea id="impInput" rows="8" spellcheck="false" placeholder="여기에 .nani 코드를 붙여넣고 [분기도로 그리기]를 누르세요.
+    <textarea id="impInput" rows="10" spellcheck="false" style="display:none" placeholder="여기에 .nani 코드를 붙여넣고 [분기도로 그리기]를 누르세요.
 # 라벨 → 블록, @choice/@goto → 연결선, @if → 조건으로 자동 인식됩니다. (현재 캔버스는 덮어써요)"></textarea>
   </div>
 
 </main>
 
 <footer>
-  블록 = <b># 라벨</b> · 선택지 ○ = 출력 포트 · 블록 왼쪽 ○ = 입력 —
-  선택지가 있는 블록은 <b>@stop</b>, 조건 블록은 <b>@endif</b>가 자동으로 붙습니다.
-  작업물은 브라우저에 자동 저장 · 이 파일 하나로 GitHub Pages 배포 가능.
+  블록 하나 = <b># 라벨</b> 하나 · <b>@stop / @endif 자동</b> · 작업물은 이 브라우저에 자동 저장
 </footer>
 
 <script>
@@ -293,22 +319,20 @@ function blockNode(s,i){
   const d=baseNode(s,i,isEnd?"ending":"");
   const c=s.cond||{};
   if(c.on&&(!c.rows||!c.rows.length))c.rows=[{op:c.op||">=",val:c.val??2}]; // 구버전 데이터 호환
-  const copt=o=>COND_OPS.map(([v,l])=>`<option value="${esc(v)}" ${o===v?"selected":""}>${l}</option>`).join("");
-  const condUI=`<label class="condtog"><input type="checkbox" class="f-condon" ${c.on?"checked":""}> 블록 안 @if 분기 (조건에 따라 대사가 갈렸다가 다시 이어짐)</label>
+  const condUI=`<label class="condtog"><input type="checkbox" class="f-condon" ${c.on?"checked":""}> @if 분기 넣기 (블록 안에서 내용이 갈림)</label>
   ${c.on?`<div class="nrow">
-    <span class="cif">판정 변수</span>
+    <span class="cif">변수</span>
     <input class="f-cvar" value="${esc(c.var||"")}" placeholder="예: affinity" style="flex:1;min-width:70px">
   </div>`+
   c.rows.map((r,ri)=>`<div class="nrow">
-    <span class="cif">${ri===0?"만약":"아니고"} <b class="cvname">${esc(c.var||"변수")}</b>가</span>
-    <input class="f-cval" data-ri="${ri}" type="number" value="${r.val??0}" style="flex:0 0 52px">
-    <select class="f-cop" data-ri="${ri}" style="flex:0 0 76px">${copt(r.op||">=")}</select>
-    <span class="cif">이면</span>
+    <span class="cif">${ri===0?"if":"elseif"} <b class="cvname">${esc(c.var||"변수")}</b></span>
+    <select class="f-cop" data-ri="${ri}" style="flex:0 0 62px">${condOpts(r.op||">=")}</select>
+    <input class="f-cval" data-ri="${ri}" type="number" value="${r.val??0}" style="flex:0 0 56px">
     ${c.rows.length>1?`<button class="rdel cdel" data-ri="${ri}" title="이 조건 삭제">✕</button>`:""}
   </div>`).join("")+
   `<div class="nrow">
-    <button class="small ghost caddr">+ 조건 추가 (@elseif)</button>
-    <span class="cif">어느 것도 아니면 → @else</span>
+    <button class="small ghost caddr">+ elseif</button>
+    <span class="cif">else는 자동 생성</span>
   </div>`:""}`;
   let rows="";
   (s.choices||[]).forEach((c,ci)=>{
@@ -354,30 +378,29 @@ function blockNode(s,i){
   d.querySelector(".addch").onclick=()=>{s.choices.push({text:"",set:"",target:""});save();renderNodes();};
   return d;
 }
-const COND_OPS=[[">=","이상"],[">","초과"],["<=","이하"],["<","미만"],["==","와 같음"]];
+const COND_OPS=[">=",">","<=","<","=="];
+const condOpts=sel=>COND_OPS.map(v=>`<option value="${esc(v)}" ${sel===v?"selected":""}>${esc(v)}</option>`).join("");
 function condNode(s,i){
   const d=baseNode(s,i,"cond");
   const vname=esc(s.var||"변수");
   let rows="";
   (s.branches||[]).forEach((b,bi)=>{
-    const opts=COND_OPS.map(([v,l])=>`<option value="${esc(v)}" ${b.op===v?"selected":""}>${l}</option>`).join("");
     rows+=`<div class="nrow">
-      <span class="cif"><b class="vname">${vname}</b>가</span>
-      <input class="f-val" data-bi="${bi}" type="number" value="${b.val}" style="flex:0 0 52px">
-      <select data-bi="${bi}" style="flex:0 0 76px">${opts}</select>
-      <span class="cif">이면</span>
+      <span class="cif">${bi===0?"if":"elseif"} <b class="vname">${vname}</b></span>
+      <select data-bi="${bi}" style="flex:0 0 62px">${condOpts(b.op)}</select>
+      <input class="f-val" data-bi="${bi}" type="number" value="${b.val}" style="flex:0 0 56px">
       <button class="rdel" data-bi="${bi}" title="조건 삭제">✕</button>
       <span class="port out ${b.target?"linked":""}" data-kind="branch" data-bi="${bi}" title="조건이 맞으면 갈 블록에 연결"></span>
     </div>`;
   });
   d.innerHTML=`<div class="nhead"><span class="port in" title="선택지가 끝난 블록을 여기로 연결"></span>
-      <span class="ntag">@if</span><input class="f-var" value="${esc(s.var||"")}" placeholder="판정할 변수 (예: affinity)" spellcheck="false">
+      <span class="ntag">@if</span><input class="f-var" value="${esc(s.var||"")}" placeholder="변수 (예: affinity)" spellcheck="false">
       <button class="ndel">✕</button></div>
     <div class="nbody">
-      <div class="chint">위 조건부터 순서대로 검사해요</div>
+      <div class="chint">위에서부터 순서대로 검사</div>
       ${rows}
-      <button class="small ghost addbr">+ 조건 추가</button>
-      <div class="nfoot"><span class="lab">어느 것도 아니면 (그 외)</span>
+      <button class="small ghost addbr">+ elseif</button>
+      <div class="nfoot"><span class="lab">else (어느 것도 아닐 때)</span>
         <span class="port out ${s.elseTarget?"linked":""}" data-kind="else" title="모든 조건이 안 맞을 때 갈 블록에 연결"></span></div>
     </div>`;
   bindNode(d,s,i,true);
@@ -437,7 +460,10 @@ function bindNode(d,s,i,isCond){
         updateWirePositions();
       });
     };
-    const up=()=>{save();removeEventListener("pointermove",move);removeEventListener("pointerup",up);};
+    const up=()=>{
+      if(raf){cancelAnimationFrame(raf);raf=0;}
+      save();removeEventListener("pointermove",move);removeEventListener("pointerup",up);
+    };
     addEventListener("pointermove",move); addEventListener("pointerup",up);
   });
 }
@@ -584,6 +610,7 @@ canvas.addEventListener("pointerdown",e=>{
     });
   };
   const up=()=>{
+    if(raf){cancelAnimationFrame(raf);raf=0;} // 떼는 순간보다 늦게 실행될 갱신 예약 취소 (영역 잔상 버그 방지)
     marquee.style.display="none"; // 마우스를 떼면 선택 영역은 사라지고, 안에 있던 블록만 선택 유지
     if(!moved){selection.clear();applySelection();} // 빈 곳 클릭 = 선택 해제
     removeEventListener("pointermove",move);removeEventListener("pointerup",up);
@@ -623,6 +650,7 @@ canvas.addEventListener("pointerdown",e=>{
     });
   };
   const up=ev=>{
+    if(raf){cancelAnimationFrame(raf);raf=0;}
     removeEventListener("pointermove",move);removeEventListener("pointerup",up);
     temp.remove();
     const under=document.elementFromPoint(ev.clientX,ev.clientY);
@@ -882,6 +910,18 @@ $("impRun").onclick=()=>{
   canvasBox.scrollTo({top:0,left:0,behavior:"smooth"});
   st.textContent=`블록 ${scenes.length}개로 그렸습니다 — 위 캔버스를 확인하세요`;
 };
+
+/* ───────── 탭 · 조작법 팝업 ───────── */
+const TABS={code:[$("codeBox"),$("toolsCode")],imp:[$("impInput"),$("toolsImp")]};
+document.querySelectorAll(".tabbtn").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabbtn").forEach(x=>x.classList.toggle("active",x===b));
+  Object.entries(TABS).forEach(([k,[pane,tools]])=>{
+    const on=k===b.dataset.tab;
+    pane.style.display=on?"":"none";
+    tools.style.display=on?"flex":"none";
+  });
+});
+$("helpBtn").onclick=()=>{const h=$("helpPop");h.hidden=!h.hidden;};
 
 /* ───────── 시작 ───────── */
 (function init(){
